@@ -1,10 +1,10 @@
 {
-  "latest": "1.4.0",
+  "latest": "1.4.1",
   "mandatory": false,
   "notes": [
-    "Acceso remoto, overlay HUD, nota de conducción y tacógrafo",
-    "Botonera, convoy y conexión con el bot de la VTC",
-    "Más integración con TruckersMP y correcciones"
+    "Nombres de ciudades y puntos de interés en el mini mapa",
+    "Buscador en el mapa y mejoras de rendimiento",
+    "Licencia MIT y avisos de terceros"
   ],
   "exe": "https://github.com/Xito-Development/xito-truck-hub/releases/latest/download/XitoTruckHub-Setup.exe",
   "apk": "https://github.com/Xito-Development/xito-truck-hub/releases/latest/download/XitoTruckHub.apk",

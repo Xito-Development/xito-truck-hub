@@ -445,6 +445,12 @@ document.addEventListener('click', async (e) => {
   } catch (err) { toast('No se pudo abrir', err.message, 'x', 'bad'); }
   setTimeout(() => (b.disabled = false), 4000);
 });
+// Atajos: Ctrl + 1…9 cambian de sección y «/» busca
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest('input, textarea, select')) return;
+  if ((e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key)) { const n = NAV[+e.key - 1]; if (n) { e.preventDefault(); go(n.id); } return; }
+  if (e.key === '/' && !e.ctrlKey) { const f = $('#jobQ') || $('#mapSearch'); if (f) { e.preventDefault(); f.focus(); } }
+});
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('.sheet.show') && !$('.modal-back')) closeSheet(); });
 function closeSheet(instant) {
   $$('.sheet, .sheet-back').forEach((el) => {
@@ -758,12 +764,13 @@ function renderTacho() {
 // Aviso fijo mientras LaLiga bloquea Cloudflare en España (hayahora.futbol)
 function renderLaliga() {
   let el = $('#lalBanner');
-  const on = S.laliga?.blocked && S.settings?.alerts?.laliga !== false;
+  const on = S.laliga?.blocked && S.settings?.alerts?.laliga !== false && S.lalHidden !== (S.laliga?.since || true);
   if (!on) { if (el) { el.classList.add('out'); setTimeout(() => el.remove(), 350); } return; }
   if (!el) { el = document.createElement('div'); el.id = 'lalBanner'; el.className = 'lal-banner'; document.body.appendChild(el); }
   const since = S.laliga.since ? new Date(S.laliga.since).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
   el.innerHTML = `<span class="lal-ball">⚽</span><div><b>TruckersMP caído temporalmente en España</b><small>Hay fútbol: LaLiga está bloqueando IPs de Cloudflare${since ? ' desde las ' + since : ''}. Volverá cuando termine el bloqueo.</small></div>
-    <a class="btn ghost" href="https://hayahora.futbol/" target="_blank" rel="noopener">Ver estado</a>`;
+    <a class="btn ghost" href="https://hayahora.futbol/" target="_blank" rel="noopener">Ver estado</a><button class="btn ghost lal-x" aria-label="Ocultar">${ic('x')}</button>`;
+  el.querySelector('.lal-x').onclick = () => { S.lalHidden = S.laliga.since || true; el.remove(); };
 }
 // Siguiente ciudad de la ruta recomendada que aún no has pasado
 function nextVia() {
@@ -862,7 +869,7 @@ function jobDetail(j) {
     <span class="pill ${S2[1]}">${S2[0]}</span>
     <h2 style="font-size:26px;margin:10px 0 2px">${esc(j.fromCity)} → ${esc(j.toCity)}</h2>
     <p class="muted">${esc(j.fromCompany)} → ${esc(j.toCompany)}</p>
-    ${j.path && j.path.length > 1 ? `<canvas class="route-mini" id="routeMini" aria-label="Recorrido del trabajo"></canvas>` : ''}
+    <canvas class="route-mini hidden" id="routeMini" aria-label="Recorrido del trabajo"></canvas>
     ${j.score != null ? `<div class="score-live" style="margin-top:16px"><span class="grade g-${j.grade.replace('+', 'p')}">${j.grade}</span><div><b>Nota de conducción: ${j.score} / 100</b><small>${j.mode === 'real' ? 'Viaje Real: respetaste los límites' : 'Modo Carrera: demasiado tiempo por encima del límite'} · exceso ${j.speedingPct || 0} % del tiempo</small></div></div>
       ${j.penalties?.length ? `<div class="chips" style="margin-top:10px">${j.penalties.map((p) => `<span class="pill bad">${esc(p.name)} −${p.points}</span>`).join('')}</div>` : ''}` : ''}
     <div class="grid g2" style="margin-top:20px">
@@ -898,8 +905,9 @@ function jobDetail(j) {
     <div class="stars" id="jobStars">${[1, 2, 3, 4, 5].map((n) => `<button data-star="${n}" aria-label="${n} estrellas" class="${n <= (j.rating || 0) ? 'on' : ''}">${ic('star')}</button>`).join('')}</div>
     <textarea class="input" id="jobNote" rows="3" placeholder="Añade una nota (convoy, incidencias, con quién fuiste…)" style="margin-top:10px;resize:vertical">${esc(j.note || '')}</textarea>
     <div class="row" style="margin-top:24px"><button class="btn danger" id="delJob">Eliminar del historial</button></div>`);
-  const mini = $('#routeMini');
-  if (mini && window.drawRouteMini) requestAnimationFrame(() => drawRouteMini(mini, j.path, String(j.game).toLowerCase() === 'ats' ? 'ats' : 'ets2'));
+  const drawMini = (path) => { const mini = $('#routeMini'); if (!mini || !window.drawRouteMini || !(path?.length > 1)) return; mini.classList.remove('hidden'); requestAnimationFrame(() => drawRouteMini(mini, path, String(j.game).toLowerCase() === 'ats' ? 'ats' : 'ets2')); };
+  if (j.path?.length > 1) drawMini(j.path);
+  else if (S.connected) api(`/api/map/trail?job=${encodeURIComponent(j.id)}`).then((r) => { j.path = r.path; drawMini(r.path); }).catch(() => {});
   const saveJob = (patch) => S.connected && post('/api/jobs/update', { id: j.id, ...patch }).then((r) => Object.assign(j, r)).catch(() => {});
   $('#jobStars').onclick = (e) => {
     const b = e.target.closest('[data-star]'); if (!b) return;
@@ -1091,7 +1099,7 @@ VIEWS.recorridos = (root) => {
       root.innerHTML = `<div class="head"><div><h1>Mis recorridos</h1><p>Por dónde has ido</p></div></div>${notConnectedCard()}`; return;
     }
     if (cached) render(cached, false); else root.innerHTML = `<div class="head"><div><h1>Mis recorridos</h1></div></div>${sk(300)}`;
-    try { const J = await api('/api/journeys', { timeout: 30000 }); try { LS.set('cache.journeys', J); } catch { const J2 = { ...J, trail: (J.trail || []).filter((_, i) => i % 3 === 0) }; LS.set('cache.journeys', J2); } render(J, false); }
+    try { const J = await api(`/api/journeys?max=${S.mode === 'remote' ? 2500 : 8000}`, { timeout: 30000 }); try { LS.set('cache.journeys', J); } catch { const J2 = { ...J, trail: (J.trail || []).filter((_, i) => i % 3 === 0) }; LS.set('cache.journeys', J2); } render(J, false); }
     catch (e) { if (!cached) root.innerHTML = `<div class="card empty"><b>No se pudieron cargar</b>${esc(e.message)}</div>`; }
   };
   load();
@@ -1639,8 +1647,20 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 const CHANGELOG = {
+  '1.4.1': [
+    'El mini mapa del overlay muestra los nombres de las ciudades, las empresas y los puntos de interés',
+    'Buscador de ciudades y empresas en el mapa, y datos al pasar el ratón por gasolineras, talleres o garajes',
+    'El mini mapa consume menos recursos del juego',
+    'Licencia MIT y avisos de terceros incluidos',
+    'F5 se puede desactivar desde Ajustes',
+    'Menos datos al consultar los recorridos desde el móvil en remoto',
+    'El historial ocupa mucho menos: los recorridos de cada entrega se guardan simplificados y el listado ya no los envía',
+    'El Excel de entregas incluye nota, modo, beneficio neto y matrícula',
+    'Atajos Ctrl + 1…9 para cambiar de sección y «/» para buscar',
+    'El aviso del fútbol se puede cerrar'
+  ],
   '1.4.0': [
     'Acceso remoto desde cualquier lugar (también con datos móviles), cifrado y gratis; búsqueda automática del PC en la Wi‑Fi',
     'Overlay a pantalla completa estilo HUD del juego: velocímetro, testigos, mini mapa con la ruta, mensajes, finanzas de 7 días, combustible, tacógrafo y convoy',
@@ -1805,6 +1825,7 @@ VIEWS.ajustes = (root) => {
         <div class="chips" id="ovWidgets" style="margin:4px 0 8px">${[['speed', 'Velocímetro'], ['lamps', 'Testigos'], ['nav', 'Navegación y mini mapa'], ['messages', 'Mensajes'], ['finance', 'Finanzas'], ['damage', 'Daños'], ['job', 'Trabajo'], ['tacho', 'Tacógrafo'], ['convoy', 'Convoy'], ['fuel', 'Combustible']]
           .map(([k, l]) => `<button class="chip" data-wg="${k}" aria-pressed="${ov.widgets?.[k]?.on !== false && !(k === 'damage' && !ov.widgets?.[k]?.on)}">${l}</button>`).join('')}</div>
         ${sw('ovRotate', ov.mapRotate !== false, 'Mini mapa girando con el camión')}
+        ${IS_CAP ? '' : sw('ovF5', ov.f5Zoom !== false, 'F5 cambia el zoom del mini mapa', 'La tecla sigue llegando al juego')}
         ${IS_CAP ? '' : `<div class="setting"><div><b>Pantalla del overlay</b><small>Elige el monitor donde juegas</small></div><select class="input" id="ovDisplay" style="width:auto"><option>…</option></select></div>`}
         ${IS_CAP ? '' : `<div class="setting"><div><b>Overlay para directos</b><small>Añádelo en OBS o Streamlabs como «Fuente de navegador» (1920×1080)</small></div><button class="btn" id="obsCopy">Copiar dirección</button></div>`}
         ${sw('ovPauseMini', ov.pauseMini !== false, 'En pausa, mostrar el overlay minimizado')}` : ''}
@@ -1864,6 +1885,7 @@ VIEWS.ajustes = (root) => {
       ${IS_CAP ? '' : `<section class="card"><h2>Atajos de teclado</h2><div class="stack" style="gap:0">${SHORTCUT_LIST.map(([k, d]) => `<div class="setting"><span>${d}</span><span>${k.split('+').map((x) => `<kbd>${x}</kbd>`).join(' + ')}</span></div>`).join('')}</div></section>`}
       <section class="card"><h2>Acerca de</h2><p><b>Xito Truck Hub</b> ${esc(S.version || '')} · Xito Development</p>
         ${IS_CAP ? '' : '<button class="btn" id="reWizard" style="margin-top:12px">Repetir el asistente de configuración</button>'}
+        <div class="row wrap" style="gap:8px;margin-top:10px"><a class="btn ghost" href="https://github.com/Xito-Development/xito-truck-hub" target="_blank" rel="noopener">Código y licencia (MIT)</a><a class="btn ghost" href="https://github.com/Xito-Development/xito-truck-hub/blob/main/THIRD-PARTY-NOTICES.md" target="_blank" rel="noopener">Avisos de terceros</a></div>
         <p class="muted" style="font-size:13px;margin-top:6px">Telemetría mediante el SDK de SCS y el plugin de RenCloud (MIT). Jugador, VTC, servidores y convoyes desde la API pública de TruckersMP; tráfico desde traffic.krashnz.com y el mapa en vivo de TruckersMP. World of Trucks no ofrece API pública: tus entregas se registran aquí, en local.</p></section>
     </div>`;
     bind();
@@ -1902,6 +1924,7 @@ VIEWS.ajustes = (root) => {
     if ($('#ovPlace')) $('#ovPlace').onclick = () => post('/api/overlay', { action: 'edit' });
     if ($('#ovWidgets')) $('#ovWidgets').onclick = (e) => { const c = e.target.closest('[data-wg]'); if (!c) return; const v = c.getAttribute('aria-pressed') !== 'true'; c.setAttribute('aria-pressed', v); save({ overlay: { widgets: { [c.dataset.wg]: { on: v } } } }); };
     tog('ovRotate', (v) => save({ overlay: { mapRotate: v } }));
+    tog('ovF5', (v) => save({ overlay: { f5Zoom: v } }));
     if ($('#ovDisplay')) api('/api/displays').then((list) => {
       const sel = $('#ovDisplay'); if (!sel) return;
       if (!list.length) { sel.closest('.setting').remove(); return; }

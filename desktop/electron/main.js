@@ -12,7 +12,7 @@ app.setAppUserModelId('com.xitodev.truckhub');
 const resourcesDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, '..', 'resources');
 const uiDir = path.join(__dirname, '..', 'ui');
 const icon = path.join(__dirname, 'assets', 'icon.png');
-let win = null, overlay = null, tray = null, hub = null, quitting = false, editMode = false;
+let win = null, overlay = null, tray = null, hub = null, quitting = false, editMode = false, f5Handler = null;
 
 const S = () => hub.store.data.settings;
 const saveOverlay = (patch) => { hub.store.updateSettings({ overlay: patch }); hub.srv.broadcast({ t: 'settings', settings: S() }); };
@@ -183,7 +183,15 @@ app.whenReady().then(() => {
       overlay: (action) => {
         if (action === 'edit') setEdit(!editMode);
         else if (action === 'toggle') toggleOverlay();
-        else applyOverlay();
+        else {
+          // F5 (zoom del mini mapa) se activa o desactiva según los ajustes
+          if (S().overlay.f5Zoom === false) globalShortcut.unregister('F5');
+          else if (f5Handler && !globalShortcut.isRegistered('F5')) { try { globalShortcut.register('F5', f5Handler); } catch {} }
+          const c = S().overlay.corner || 'br';
+          if (lastCorner !== null && c !== lastCorner) placeCorner(c);
+          lastCorner = c;
+          applyOverlay();
+        }
       }
     }
   });
@@ -204,13 +212,13 @@ app.whenReady().then(() => {
   setTimeout(() => { createWindow(); createOverlay(); }, 400);
   for (const [acc, fn] of Object.entries(SHORTCUTS)) { try { globalShortcut.register(acc, fn); } catch {} }
   // F5: cambia el zoom del mini mapa del overlay y deja pasar la tecla al juego (que la usa para su navegador)
-  const f5 = () => {
+  f5Handler = () => {
     sendOverlay('zoom-map');
     globalShortcut.unregister('F5');
     hub.bridge.sendKey('F5');
-    setTimeout(() => { if (S().overlay.f5Zoom !== false) try { globalShortcut.register('F5', f5); } catch {} }, 250);
+    setTimeout(() => { if (S().overlay.f5Zoom !== false) try { globalShortcut.register('F5', f5Handler); } catch {} }, 250);
   };
-  if (S().overlay.f5Zoom !== false) try { globalShortcut.register('F5', f5); } catch {}
+  if (S().overlay.f5Zoom !== false) try { globalShortcut.register('F5', f5Handler); } catch {}
   screen.on('display-metrics-changed', fitOverlay);
   screen.on('display-added', fitOverlay);
   screen.on('display-removed', fitOverlay);

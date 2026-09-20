@@ -618,3 +618,4 @@ textarea.input { font: inherit; }
   .head h1 { font-size: 24px; }
   .dash, .wz { z-index: 96; }
 }
+.lal-x { padding: 6px 8px; } .lal-x svg { width: 16px; height: 16px; }

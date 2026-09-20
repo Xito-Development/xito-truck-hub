@@ -63,12 +63,13 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
     }),
     'GET /api/stats': (q) => stats.compute(store.data, q.get('range') || 'all'),
     'GET /api/achievements': () => stats.achievements(store.data),
+    'GET /api/job': (q) => { const j = store.data.jobs.find((x) => x.id === q.get('id')); if (!j) throw new Error('Trabajo no encontrado'); return j; },
     'GET /api/jobs': (q) => {
       const off = Math.max(0, +q.get('offset') || 0), lim = Math.min(Math.max(1, +q.get('limit') || 50), 1000);
       const s = (q.get('q') || '').toLowerCase().trim();
       const st = q.get('status');
       const f = store.data.jobs.filter((j) => (!st || j.status === st) && (!s || [j.cargo, j.fromCity, j.toCity, j.fromCompany, j.toCompany, j.truck].join(' ').toLowerCase().includes(s)));
-      return { total: f.length, items: f.slice(off, off + lim) };
+      return { total: f.length, items: f.slice(off, off + lim).map(({ path, sc, ...j }) => j) };
     },
     'GET /api/events': (q) => {
       const type = q.get('type');
@@ -169,8 +170,8 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
       return { trail: step === 1 ? t : t.filter((p, i) => p === null || i % step === 0) };
     },
     'GET /api/map/cities': () => store.data.cities,
-    'GET /api/journeys': async () => {
-      const d = store.data, t = d.trail, step = Math.max(1, Math.ceil(t.length / 8000));
+    'GET /api/journeys': async (q) => {
+      const d = store.data, t = d.trail, max = Math.max(500, Math.min(20000, +q.get('max') || 8000)), step = Math.max(1, Math.ceil(t.length / max));
       const del = d.jobs.filter((j) => j.status === 'delivered');
       // Ciudades y países visitados (usando el mapa de TruckersMP para saber el país)
       const locs = await world.locations('ets2').catch(() => []);
@@ -247,7 +248,7 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
     },
     'POST /api/data/reset': async (_q, b) => {
       if (b.confirm !== 'BORRAR') throw new Error('Confirmación incorrecta');
-      Object.assign(store.data, { totals: { km: 0, driveSec: 0, fuel: 0 }, days: {}, jobs: [], events: [], achievements: [], current: null, trail: [], cities: {} });
+      Object.assign(store.data, { totals: { km: 0, driveSec: 0, fuel: 0 }, days: {}, jobs: [], events: [], achievements: [], current: null, trail: [], cities: {}, hist: null, botQueue: [] });
       store.save(true); return { ok: true };
     },
     'POST /api/data/import': async (_q, b) => {
@@ -282,10 +283,11 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
     }
     if (url.pathname === '/api/jobs.csv') {
       if (!authed(req, url)) return send(res, 401, { error: 'PIN incorrecto' });
-      const rows = [['Fecha', 'Estado', 'Origen', 'Empresa origen', 'Destino', 'Empresa destino', 'Carga', 'Toneladas', 'Km', 'Ingresos', 'XP', 'Daño %', 'Combustible l', 'Vel. máx', 'Multas', 'Camión']];
+      const rows = [['Fecha', 'Estado', 'Origen', 'Empresa origen', 'Destino', 'Empresa destino', 'Carga', 'Toneladas', 'Km', 'Ingresos', 'Beneficio neto', 'XP', 'Nota', 'Calificación', 'Modo', 'Daño %', 'Combustible l', 'Coste combustible', 'Vel. máx', 'Multas', 'Camión', 'Matrícula']];
       for (const j of store.data.jobs) rows.push([new Date(j.endedAt).toLocaleString('es-ES'), ({ delivered: 'Entregado', cancelled: 'Cancelado', interrupted: 'Interrumpido' })[j.status] || j.status, j.fromCity, j.fromCompany, j.toCity, j.toCompany, j.cargo,
-        ((j.mass || 0) / 1000).toFixed(1).replace('.', ','), Math.round(j.distanceKm || j.drivenKm || 0), Math.round(j.revenue || 0), j.xp || 0,
-        Math.round((j.cargoDamage || 0) * 100), Math.round(j.fuelUsed || 0), Math.round(j.maxSpeed || 0), Math.round(j.finesTotal || 0), j.truck]);
+        ((j.mass || 0) / 1000).toFixed(1).replace('.', ','), Math.round(j.distanceKm || j.drivenKm || 0), Math.round(j.revenue || 0), j.net != null ? Math.round(j.net) : '', j.xp || 0,
+        j.score ?? '', j.grade || '', j.mode === 'real' ? 'Real' : j.mode === 'race' ? 'Carrera' : '',
+        Math.round((j.cargoDamage || 0) * 100), Math.round(j.fuelUsed || 0), j.fuelCost != null ? Math.round(j.fuelCost) : '', Math.round(j.maxSpeed || 0), Math.round(j.finesTotal || 0), j.truck, j.plate || '']);
       res.writeHead(200, headers({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="xito-truckhub-entregas.csv"' }));
       return res.end(csv(rows));
     }

@@ -102,6 +102,7 @@ function arcPath(f0, f1) {
 
 // ---------- actualización ----------
 let smooth = 0, last = performance.now();
+let lastMap = 0;
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   const t = live?.truck;
@@ -109,7 +110,7 @@ function frame(now) {
   smooth += (target - smooth) * Math.min(1, dt * 7);
   const e = $('#spd'); if (e) e.textContent = Math.round(smooth);
   const arc = $('#arc'); if (arc) arc.setAttribute('stroke-dashoffset', String(1000 - Math.min(1, smooth / (mph() ? 90 : 140)) * 1000));
-  drawMinimap();
+  if (now - lastMap > 40) { lastMap = now; drawMinimap(); }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -222,8 +223,27 @@ function tile(url) {
   if (imgs.size > 200) imgs.delete(imgs.keys().next().value);
   return e;
 }
-let mmZoom = 1.4, pois = [];
-fetch('/api/map/locations?game=ets2').then((r) => r.json()).then((l) => { pois = l.filter((x) => ['fuel', 'rest', 'service', 'garage', 'company'].includes(x.t)); }).catch(() => {});
+let mmZoom = 1.4, locsAll = [], nearPois = [], nearCities = [], nearAt = 0, locsGame = '';
+function loadLocs(game) {
+  if (locsGame === game) return;
+  locsGame = game;
+  fetch(`/api/map/locations?game=${game}`).then((r) => r.json()).then((l) => { locsAll = l; nearAt = 0; }).catch(() => { locsGame = ''; });
+}
+// Solo se recalculan los puntos cercanos cada 2 s: dibujar 10.000 en cada fotograma comería CPU del juego
+function refreshNear(cx, cy, range) {
+  if (performance.now() - nearAt < 2000) return;
+  nearAt = performance.now();
+  const r2 = range * range;
+  nearPois = []; nearCities = [];
+  for (const l of locsAll) {
+    const dx = l.x - cx, dy = l.y - cy;
+    if (dx * dx + dy * dy > r2) continue;
+    if (l.t === 'city') nearCities.push(l);
+    else if (['fuel', 'rest', 'service', 'garage', 'company'].includes(l.t)) nearPois.push(l);
+  }
+  nearCities.sort((a, b) => (a.x - cx) ** 2 + (a.y - cy) ** 2 - ((b.x - cx) ** 2 + (b.y - cy) ** 2));
+  nearCities = nearCities.slice(0, 14);
+}
 function drawMinimap() {
   const cv = $('#mm'); if (!cv || !live || !live.truck) return;
   const ctx = cv.getContext('2d'), d = devicePixelRatio || 1, W = 280, H = 200;
@@ -253,12 +273,14 @@ function drawMinimap() {
   }
   const acc = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#ffb547';
   // Puntos de interés cercanos: gasolineras, descanso, talleres, garajes y empresas
+  loadLocs(game);
+  refreshNear(cx, cy, Math.hypot(W, H) / ppu);
   if (ppu > 0.02) {
     const COL = { fuel: '#ffb547', rest: '#6fb6ff', service: '#ff7a59', garage: '#b07cff', company: '#4fd1a1' };
-    const r2 = (Math.hypot(W, H) / ppu) ** 2, s2 = ppu > 0.08 ? 6 : 4;
-    for (const p of pois) {
+    const s2 = ppu > 0.08 ? 6 : 4;
+    for (const p of nearPois) {
       if (p.t === 'company' && ppu < 0.08) continue;
-      const [px, py] = tf(p.x, p.y); if ((px - cx) ** 2 + (py - cy) ** 2 > r2) continue;
+      const [px, py] = tf(p.x, p.y);
       const [sx, sy] = toS(px, py);
       ctx.fillStyle = COL[p.t]; ctx.fillRect(sx - s2 / 2, sy - s2 / 2, s2, s2);
     }
@@ -277,6 +299,30 @@ function drawMinimap() {
     ctx.fillStyle = m.color; ctx.strokeStyle = '#0c121c'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mx, my, 6, 0, 7); ctx.fill(); ctx.stroke();
   }
   ctx.restore();
+  // Nombres de ciudades (y empresas al acercar): el texto se dibuja derecho aunque el mapa gire
+  const proj = (x, y) => {
+    const [mx, my] = toS(...tf(x, y));
+    return [W / 2 + mx * Math.cos(rot) - my * Math.sin(rot), H * 0.62 + mx * Math.sin(rot) + my * Math.cos(rot)];
+  };
+  ctx.textAlign = 'center'; ctx.lineJoin = 'round';
+  for (const c of nearCities) {
+    const [sx, sy] = proj(c.x, c.y);
+    if (sx < -30 || sy < -12 || sx > W + 30 || sy > H + 12) continue;
+    ctx.font = '700 11px Barlow, sans-serif';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,12,20,.9)'; ctx.strokeText(c.n, sx, sy - 6);
+    ctx.fillStyle = '#eef2f8'; ctx.fillText(c.n, sx, sy - 6);
+    ctx.fillStyle = 'rgba(238,242,248,.75)'; ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, 7); ctx.fill();
+  }
+  if (ppu > 0.1) {
+    ctx.font = '600 10px Barlow, sans-serif';
+    for (const p of nearPois) {
+      if (p.t !== 'company' || !p.n) continue;
+      const [sx, sy] = proj(p.x, p.y);
+      if (sx < -30 || sy < -12 || sx > W + 30 || sy > H + 12) continue;
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,12,20,.9)'; ctx.strokeText(p.n, sx, sy + 12);
+      ctx.fillStyle = 'rgba(238,242,248,.85)'; ctx.fillText(p.n, sx, sy + 12);
+    }
+  }
   // camión (fijo en el centro, mirando hacia arriba si el mapa gira)
   ctx.save(); ctx.translate(W / 2, H * 0.62); ctx.rotate(O().mapRotate !== false ? 0 : -rot + Math.atan2(-Math.cos(h), -Math.sin(h)) + Math.PI / 2);
   ctx.fillStyle = acc; ctx.strokeStyle = '#0c121c'; ctx.lineWidth = 2;

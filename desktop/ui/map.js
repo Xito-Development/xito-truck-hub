@@ -69,6 +69,7 @@
 
     root.innerHTML = `<div class="head" style="margin-bottom:14px"><div><h1>Mapa</h1><p id="mapSub">TruckersMP en directo</p></div>
       <div class="row wrap"><div class="chips" id="mapGame">${Object.entries(GAMES).map(([k, g]) => `<button class="chip" data-g="${k}" aria-pressed="${k === game}">${g.name}</button>`).join('')}</div>
+      <input class="input" id="mapSearch" list="mapSearchList" placeholder="Buscar ciudad o empresa" aria-label="Buscar en el mapa" style="width:min(230px,42vw)"><datalist id="mapSearchList"></datalist>
       <select class="input" id="mapServer" style="width:auto" aria-label="Servidor"><option value="auto">Mi servidor</option></select>
       ${IS_ELECTRON ? `<button class="chip" id="mapOfficial" aria-pressed="${!!cfg.official}">Mapa oficial de TruckersMP</button>` : `<a class="chip" href="https://map.truckersmp.com" target="_blank" rel="noopener">Mapa oficial de TruckersMP</a>`}</div></div>
       <div class="map-wrap">
@@ -309,12 +310,31 @@
       dirty = true; LS.set('mapZoom', ppu);
     }
     ppu = LS.get('mapZoom', 0.02);
+    const POI_NAME = { fuel: 'Gasolinera', rest: 'Área de descanso', service: 'Taller', garage: 'Garaje', company: 'Empresa', dealer: 'Concesionario', recruit: 'Agencia de empleo', port: 'Puerto de ferry', toll: 'Peaje', weigh: 'Báscula' };
+    function poiAt(sx, sy) {
+      if (ppu < 0.028) return null;
+      let best = null, bd = 14;
+      for (const l of locs) {
+        if (!POI_NAME[l.t] || (l.t === 'company' && ppu < 0.06)) continue;
+        const [x, y] = toS(l.x, l.y); const d = Math.hypot(x - sx, y - sy);
+        if (d < bd) { bd = d; best = l; }
+      }
+      return best;
+    }
     function hoverAt(sx, sy, click) {
-      if (!cfg.layer) return;
+      if (!cfg.layer) {
+        const poi = poiAt(sx, sy), tip = $('#mapTip');
+        if (poi) { tip.classList.remove('hidden'); tip.style.left = sx + 12 + 'px'; tip.style.top = sy - 10 + 'px'; tip.innerHTML = `<b>${esc(poi.n || POI_NAME[poi.t])}</b><small>${esc(poi.n ? POI_NAME[poi.t] : (poi.c || ''))}</small>`; } else tip.classList.add('hidden');
+        return;
+      }
       let best = null, bd = 12;
       for (const p of players) { const [x, y] = toS(p[0], p[1]); const d = Math.hypot(x - sx, y - sy); if (d < bd) { bd = d; best = p; } }
       if (best !== hover) { hover = best; dirty = true; }
       const tip = $('#mapTip');
+      if (!best) {
+        const poi = poiAt(sx, sy);
+        if (poi) { tip.classList.remove('hidden'); tip.style.left = sx + 12 + 'px'; tip.style.top = sy - 10 + 'px'; tip.innerHTML = `<b>${esc(poi.n || POI_NAME[poi.t])}</b><small>${esc(poi.n ? POI_NAME[poi.t] : (poi.c || ''))}</small>`; return; }
+      }
       if (best) {
         tip.classList.remove('hidden'); const [x, y] = toS(best[0], best[1]);
         tip.style.left = x + 12 + 'px'; tip.style.top = y - 10 + 'px';
@@ -334,6 +354,16 @@
       cam = { ...G().cam }; locs = []; dirty = true; loadLocs();
     };
     $('#mapServer').onchange = (e) => { cfg.server = e.target.value; saveCfg(); loadPlayers(); };
+    const doSearch = () => {
+      const q = normName($('#mapSearch').value);
+      if (!q) return;
+      const hit = locs.find((l) => l.t === 'city' && normName(l.n) === q) || locs.find((l) => (l.t === 'city' || l.t === 'company') && normName(l.n).startsWith(q));
+      if (!hit) return toast('No encontrado', 'Prueba con otro nombre.', 'search', 'bad');
+      setFollow(false); [cam.x, cam.y] = tf(hit.x, hit.y); ppu = Math.max(ppu, hit.t === 'city' ? 0.09 : 0.16); dirty = true;
+      toast(hit.n, hit.t === 'city' ? 'Ciudad' : 'Empresa', 'mapa', 'alt');
+    };
+    $('#mapSearch').onchange = doSearch;
+    $('#mapSearch').onkeydown = (e) => { if (e.key === 'Enter') doSearch(); };
     const setOfficial = (v) => {
       cfg.official = v; saveCfg();
       const fr = $('#mapFrame'); if (!fr) return;
@@ -460,7 +490,13 @@
         } catch (e) { toast('No se pudo calcular', e.message, 'x', 'bad'); renderRoute(); }
       };
     }
-    async function loadLocs() { try { locs = await getLocations(game); dirty = true; renderRoute(); } catch {} }
+    async function loadLocs() {
+      try {
+        locs = await getLocations(game); dirty = true; renderRoute();
+        const dl = $('#mapSearchList');
+        if (dl) dl.innerHTML = locs.filter((l) => l.t === 'city' || (l.t === 'company' && l.n)).slice(0, 2500).map((l) => `<option value="${esc(l.n)}">${l.t === 'city' ? esc(l.c || 'Ciudad') : 'Empresa'}</option>`).join('');
+      } catch {}
+    }
     async function loadTrail() {
       if (!S.connected) return;
       try { trail = (await api('/api/map/trail?max=25000')).trail || []; S.cities = await api('/api/map/cities'); dirty = true; } catch {}

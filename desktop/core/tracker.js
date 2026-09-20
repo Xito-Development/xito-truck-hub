@@ -54,6 +54,13 @@ class Tracker extends EventEmitter {
       ...extra
     };
     delete job.speedSum; delete job.speedN;
+    // El recorrido se guarda simplificado: suficiente para el mini mapa y mucho más ligero
+    if (Array.isArray(job.path) && job.path.length > 260) {
+      const step = Math.ceil(job.path.length / 260);
+      const last = job.path[job.path.length - 1];
+      job.path = job.path.filter((_, i) => i % step === 0);
+      if (job.path[job.path.length - 1] !== last) job.path.push(last);
+    }
     if (c.sc) Object.assign(job, Score.compute(c.sc, { fines: c.fines.length, cargoDamage: job.cargoDamage || c.cargoDamage || 0 }));
     // Beneficio neto: ingresos menos combustible, peajes, ferris y multas
     const price = +(this.store.data.settings.costs?.fuelPrice ?? 1.6);
@@ -69,6 +76,7 @@ class Tracker extends EventEmitter {
     }
     if (!this.demo) {
       this.store.data.jobs.unshift(job);
+      if (this.store.data.jobs.length > 3000) this.store.data.jobs.length = 3000;
       if (status === 'delivered') {
         const d = this.store.day();
         d.jobs += 1; d.revenue += job.revenue || 0; d.xp += job.xp || 0;
