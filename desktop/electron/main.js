@@ -127,6 +127,40 @@ function applyInstallerOptions() {
   if (o && o.autoStart) { hub.store.updateSettings({ autoStart: true }); app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] }); }
 }
 
+// ---------- actualizador propio: descarga el instalador con barra de progreso y actualiza en silencio ----------
+async function installUpdate(url, version) {
+  const os = require('os');
+  const { execFile } = require('child_process');
+  const send = (d) => hub.srv.broadcast({ t: 'update', d: { version, ...d } });
+  try {
+    send({ phase: 'download', pct: 0 });
+    const r = await fetch(url, { redirect: 'follow' });
+    if (!r.ok) throw new Error(`La descarga respondió ${r.status}`);
+    const total = +r.headers.get('content-length') || 0;
+    const file = path.join(os.tmpdir(), `XitoTruckHub-Setup-${version || 'nuevo'}.exe`);
+    const out = fs.createWriteStream(file);
+    const reader = r.body.getReader();
+    let got = 0, lastPct = -1;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      got += value.length; out.write(Buffer.from(value));
+      const pct = total ? Math.floor((got / total) * 100) : 0;
+      if (pct !== lastPct) { lastPct = pct; send({ phase: 'download', pct, got, total }); }
+    }
+    await new Promise((ok) => out.end(ok));
+    if (got < 5e6) throw new Error('El archivo descargado no parece un instalador');
+    send({ phase: 'install', pct: 100 });
+    // Instalación silenciosa con permisos de administrador; el instalador vuelve a abrir el HUB al terminar
+    const ps = `Start-Process -FilePath '${file.replace(/'/g, "''")}' -ArgumentList '/S','--force-run','--updated' -Verb RunAs`;
+    execFile('powershell', ['-NoProfile', '-Command', ps], { windowsHide: true }, (err) => {
+      if (err) return send({ phase: 'error', error: 'Cancelaste el permiso de administrador' });
+      send({ phase: 'restart' });
+      setTimeout(() => { quitting = true; app.quit(); }, 1500);
+    });
+  } catch (e) { send({ phase: 'error', error: e.message }); }
+}
+
 app.on('second-instance', showMain);
 app.whenReady().then(() => {
   // El mapa oficial de TruckersMP no deja incrustarse: dentro de nuestra app se permite
@@ -143,6 +177,7 @@ app.whenReady().then(() => {
       openExternal: (url) => shell.openExternal(url),
       openPath: (p) => shell.openPath(p),
       serverError: (msg) => dialog.showErrorBox('Xito Truck Hub', `${msg}\n\n¿Tienes el HUB abierto dos veces o otro programa usando el puerto ${PORT}?`),
+      installUpdate: (url, version) => installUpdate(url, version),
       displays: () => displays(),
       setDisplay: (id) => setDisplay(id),
       overlay: (action) => {
@@ -168,6 +203,14 @@ app.whenReady().then(() => {
   refreshTray();
   setTimeout(() => { createWindow(); createOverlay(); }, 400);
   for (const [acc, fn] of Object.entries(SHORTCUTS)) { try { globalShortcut.register(acc, fn); } catch {} }
+  // F5: cambia el zoom del mini mapa del overlay y deja pasar la tecla al juego (que la usa para su navegador)
+  const f5 = () => {
+    sendOverlay('zoom-map');
+    globalShortcut.unregister('F5');
+    hub.bridge.sendKey('F5');
+    setTimeout(() => { if (S().overlay.f5Zoom !== false) try { globalShortcut.register('F5', f5); } catch {} }, 250);
+  };
+  if (S().overlay.f5Zoom !== false) try { globalShortcut.register('F5', f5); } catch {}
   screen.on('display-metrics-changed', fitOverlay);
   screen.on('display-added', fitOverlay);
   screen.on('display-removed', fitOverlay);

@@ -38,22 +38,34 @@
   async function getLocations(game) {
     if (locCache[game]) return locCache[game];
     let out;
-    if (S.connected) out = await api(`/api/map/locations?game=${game}`);
+    if (S.connected && S.mode !== 'remote') out = await api(`/api/map/locations?game=${game}`);
     else {
+      // En el móvil (remoto o sin PC) se descarga directamente: pesa demasiado para enviarlo por el acceso remoto
       const raw = await (await fetch(`https://map.truckersmp.com/locations_${game}.min.json`)).json();
-      out = []; for (const c of raw) { out.push({ t: 'country', n: c.name, x: c.x, y: c.y }); for (const p of c.pois || []) if (p.type === 'city') out.push({ t: 'city', n: p.name, x: p.x, y: p.y }); }
+      const KEEP = { fuel: 'fuel', parking: 'rest', service: 'service', garage: 'garage', dealer: 'dealer', recruitment: 'recruit', ferry: 'port', business: 'company' };
+      const pretty = (id) => String(id || '').replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+      out = [];
+      for (const c of raw) {
+        out.push({ t: 'country', n: c.name, x: c.x, y: c.y });
+        const all = []; for (const p of c.pois || []) { all.push(p); for (const q of p.pois || []) all.push(q); }
+        for (const p of all) {
+          if (p.type === 'city') out.push({ t: 'city', n: p.name, x: p.x, y: p.y, c: c.name });
+          else if (KEEP[p.type]) out.push({ t: KEEP[p.type], n: p.type === 'business' ? pretty(p.name) : '', x: p.x, y: p.y });
+          else if (p.type === 'overlay' && p.name === 'toll_ico') out.push({ t: 'toll', n: '', x: p.x, y: p.y });
+        }
+      }
     }
     return (locCache[game] = out);
   }
 
   VIEWS.mapa = (root) => {
-    const cfg = { layer: true, trail: true, labels: true, friends: true, follow: true, heat: true, route: true, alt: true, server: 'auto', ...(S.settings?.map || {}), ...LS.get('mapCfg', {}) };
+    const cfg = { layer: true, trail: true, labels: true, friends: true, follow: true, heat: true, route: true, alt: true, fuel: true, rest: true, service: true, garage: true, company: true, more: false, server: 'auto', ...(S.settings?.map || {}), ...LS.get('mapCfg', {}) };
     cfg.layer = cfg.layer !== false; // compatibilidad con ajustes antiguos
     const saveCfg = () => { LS.set('mapCfg', cfg); if (S.connected && !IS_CAP) post('/api/settings', { map: { follow: cfg.follow, trail: cfg.trail, labels: cfg.labels, server: cfg.server } }).catch(() => {}); };
     let game = cfg.game || (String(S.live?.game).toLowerCase() === 'ats' ? 'ats' : 'ets2');
     const G = () => GAMES[game];
     let cam = { x: G().cam.x, y: G().cam.y }, ppu = 0.02, dirty = true, raf = 0;
-    let vtcMates = [], players = [], me = null, servers = [], locs = [], trail = [], friends = [], jobPath = [], hover = null, heat = [], heatMax = 1, routeView = 'popular', planning = false;
+    let prevPos = new Map(), playersAt = 0, smoothPos = null, vtcMates = [], players = [], me = null, servers = [], locs = [], trail = [], friends = [], jobPath = [], hover = null, heat = [], heatMax = 1, routeView = 'popular', planning = false;
 
     root.innerHTML = `<div class="head" style="margin-bottom:14px"><div><h1>Mapa</h1><p id="mapSub">TruckersMP en directo</p></div>
       <div class="row wrap"><div class="chips" id="mapGame">${Object.entries(GAMES).map(([k, g]) => `<button class="chip" data-g="${k}" aria-pressed="${k === game}">${g.name}</button>`).join('')}</div>
@@ -75,6 +87,12 @@
           <button class="chip" data-l="friends" aria-pressed="${cfg.friends}">Amigos</button>
           <button class="chip" data-l="convoy" aria-pressed="${cfg.convoy !== false}">Convoy</button>
           <button class="chip" data-l="vtc" aria-pressed="${cfg.vtc !== false}">Mi VTC</button>
+          <button class="chip poi-chip" data-l="fuel" aria-pressed="${cfg.fuel}"><i style="background:#ffb547"></i>Gasolineras</button>
+          <button class="chip poi-chip" data-l="rest" aria-pressed="${cfg.rest}"><i style="background:#6fb6ff"></i>Descanso</button>
+          <button class="chip poi-chip" data-l="service" aria-pressed="${cfg.service}"><i style="background:#ff7a59"></i>Talleres</button>
+          <button class="chip poi-chip" data-l="garage" aria-pressed="${cfg.garage}"><i style="background:#b07cff"></i>Garajes</button>
+          <button class="chip poi-chip" data-l="company" aria-pressed="${cfg.company}"><i style="background:#4fd1a1"></i>Empresas</button>
+          <button class="chip poi-chip" data-l="more" aria-pressed="${cfg.more}"><i style="background:#e5e55b"></i>Peajes y más</button>
         </div>
         <div class="map-tip hidden" id="mapTip"></div>
         <div class="map-info" id="mapInfo"></div>
@@ -123,8 +141,8 @@
       // tráfico en tiempo real (mapa de calor)
       if (cfg.heat && heat.length) {
         const good = C.getPropertyValue('--good').trim(), warn = C.getPropertyValue('--warn').trim(), bad = C.getPropertyValue('--bad').trim();
-        const rad = Math.max(2.5, 650 * ppu);
-        ctx.globalAlpha = 0.5;
+        const rad = Math.min(26, Math.max(2.5, 650 * ppu));
+        ctx.globalAlpha = ppu > 0.08 ? 0.28 : 0.5;
         for (const [x, y, v] of heat) {
           const [sx, sy] = toS(x, y); if (sx < -rad || sy < -rad || sx > W() + rad || sy > H() + rad) continue;
           const q = v / heatMax;
@@ -146,7 +164,10 @@
         };
         const other = routeView === 'popular' ? R.fastest : R.popular;
         if (cfg.alt && other) line(other.points, C.getPropertyValue('--muted'), 3, [8, 7]);
-        line((R[routeView] || R.popular || R.fastest).points, accent, 5);
+        const full = (R[routeView] || R.popular || R.fastest).points;
+        let from = 0;
+        const tt = S.live?.truck; if (tt && (tt.x || tt.z)) { const [mx, my] = tf(tt.x, tt.z); let bd = Infinity; full.forEach((p, i) => { const d = Math.hypot(p[0] - mx, p[1] - my); if (d < bd) { bd = d; from = i; } }); }
+        line(full.slice(Math.max(0, from - 1)), accent, 5);
         const cur = R[routeView] || R.popular || R.fastest;
         (cur.via || []).forEach((v, i) => {
           const [x, y] = toS(v.x, v.y);
@@ -161,10 +182,34 @@
         for (const p of trail) { if (!p) { pen = false; continue; } const [sx, sy] = toS(p[0], p[1]); pen ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); pen = true; }
         ctx.stroke(); ctx.globalAlpha = 1;
       }
-      // jugadores
+      // puntos de interés (gasolineras, descanso, talleres, garajes, empresas…)
+      if (ppu > 0.028 && locs.length) {
+        const POI = { fuel: ['#ffb547', 'fuel'], rest: ['#6fb6ff', 'rest'], service: ['#ff7a59', 'service'], garage: ['#b07cff', 'garage'], company: ['#4fd1a1', 'company'], dealer: ['#e5e55b', 'more'], recruit: ['#e5e55b', 'more'], port: ['#43e0ff', 'more'], toll: ['#e5e55b', 'more'], weigh: ['#e5e55b', 'more'] };
+        const GLY = { fuel: 'G', rest: 'P', service: 'T', garage: 'H', company: 'E', dealer: 'C', recruit: 'A', port: 'F', toll: '€', weigh: 'B' };
+        const sz = ppu > 0.12 ? 16 : ppu > 0.06 ? 12 : 8;
+        ctx.textAlign = 'center'; ctx.font = `700 ${Math.round(sz * 0.62)}px Barlow, sans-serif`;
+        for (const l of locs) {
+          const m = POI[l.t]; if (!m || !cfg[m[1]]) continue;
+          if (l.t === 'company' && ppu < 0.06) continue;
+          const [sx, sy] = toS(l.x, l.y); if (sx < -20 || sy < -20 || sx > W() + 20 || sy > H() + 20) continue;
+          ctx.fillStyle = m[0]; ctx.globalAlpha = 0.95;
+          ctx.beginPath(); ctx.roundRect ? ctx.roundRect(sx - sz / 2, sy - sz / 2, sz, sz, sz / 3.5) : ctx.rect(sx - sz / 2, sy - sz / 2, sz, sz); ctx.fill();
+          ctx.globalAlpha = 1;
+          if (sz >= 12) { ctx.fillStyle = '#0b1220'; ctx.fillText(GLY[l.t], sx, sy + sz * 0.22); }
+          if (l.t === 'company' && l.n && ppu > 0.14) { ctx.font = '600 11px Barlow, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = C.getPropertyValue('--bg'); ctx.strokeText(l.n, sx, sy + sz + 4); ctx.fillStyle = text; ctx.fillText(l.n, sx, sy + sz + 4); ctx.font = `700 ${Math.round(sz * 0.62)}px Barlow, sans-serif`; }
+        }
+      }
+      // jugadores (se mueven suavemente entre actualizaciones)
       if (cfg.layer) {
-        ctx.fillStyle = C.getPropertyValue('--muted'); const r = ppu > 0.05 ? 3 : 1.6;
-        for (const p of players) { const [sx, sy] = toS(p[0], p[1]); if (sx < -5 || sy < -5 || sx > W() + 5 || sy > H() + 5) continue; ctx.fillRect(sx - r / 2, sy - r / 2, r, r); }
+        const k = Math.min(1, (performance.now() - playersAt) / 3000);
+        if (k < 1) dirty = true;
+        ctx.fillStyle = C.getPropertyValue('--muted'); const r = ppu > 0.08 ? 5 : ppu > 0.03 ? 3 : 1.6;
+        for (const p of players) {
+          const prev = prevPos.get(p[3]);
+          const x = prev ? prev[0] + (p[0] - prev[0]) * k : p[0], y = prev ? prev[1] + (p[1] - prev[1]) * k : p[1];
+          const [sx, sy] = toS(x, y); if (sx < -5 || sy < -5 || sx > W() + 5 || sy > H() + 5) continue;
+          if (r >= 5) { ctx.beginPath(); ctx.arc(sx, sy, r / 1.6, 0, 7); ctx.fill(); } else ctx.fillRect(sx - r / 2, sy - r / 2, r, r);
+        }
       }
       // ciudades
       if (cfg.labels) {
@@ -202,7 +247,14 @@
       }
       // destino del trabajo
       const t = S.live?.truck, j = S.live?.job;
-      const pos = t && (t.x || t.z) ? [t.x, t.z] : me ? [me.x, me.y] : null;
+      let pos = t && (t.x || t.z) ? [t.x, t.z] : me ? [me.x, me.y] : null;
+      if (pos) {
+        if (!smoothPos || Math.hypot(pos[0] - smoothPos[0], pos[1] - smoothPos[1]) > 3000) smoothPos = pos.slice();
+        smoothPos[0] += (pos[0] - smoothPos[0]) * 0.18; smoothPos[1] += (pos[1] - smoothPos[1]) * 0.18;
+        if (Math.hypot(pos[0] - smoothPos[0], pos[1] - smoothPos[1]) > 1) dirty = true;
+        pos = smoothPos;
+        if (cfg.follow) { [cam.x, cam.y] = tf(pos[0], pos[1]); }
+      }
       const dest = j && j.onJob ? findCity(j.toCity, j.toCityId) : null;
       if (dest && pos && !(cfg.route && S.navRoute)) {
         const [ax, ay] = toS(pos[0], pos[1]), [bx, by] = toS(dest.x, dest.y);
@@ -297,10 +349,29 @@
       if (t && (t.x || t.z)) { [cam.x, cam.y] = tf(t.x, t.z); dirty = true; }
       else if (me) { [cam.x, cam.y] = tf(me.x, me.y); dirty = true; }
     }
+    // Guarda las posiciones anteriores para animar el movimiento hasta las nuevas
+    let curServer = null;
+    function setPlayers(list) {
+      prevPos = new Map(players.map((p) => [p[3], [p[0], p[1]]]));
+      players = list; playersAt = performance.now(); dirty = true;
+    }
+    // Jugadores de la zona que estás viendo, casi en tiempo real (cada 3 s)
+    async function loadArea() {
+      if (!cfg.layer || ppu < 0.02 || document.hidden) return;
+      const [x1, y1] = toW(0, 0), [x2, y2] = toW(W(), H());
+      try {
+        let list;
+        if (S.connected) list = (await api(`/api/map/area?x1=${x1}&y1=${y1}&x2=${x2}&y2=${y2}&server=${cfg.server === 'auto' ? (curServer || 'auto') : cfg.server}`)).players;
+        else { const q = `x1=${Math.round(x1)}&y1=${Math.round(y2)}&x2=${Math.round(x2)}&y2=${Math.round(y1)}&server=${curServer || 2}`; list = ((await (await fetch('https://tracker.ets2map.com/v3/area?' + q)).json()).Data || []).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name]); }
+        const inView = new Set(list.map((p) => p[3]));
+        const outside = players.filter((p) => !inView.has(p[3]) && !(p[0] >= Math.min(x1, x2) && p[0] <= Math.max(x1, x2) && p[1] >= Math.min(y1, y2) && p[1] <= Math.max(y1, y2)));
+        setPlayers(outside.concat(list));
+      } catch {}
+    }
     async function loadPlayers() {
       try {
         const r = await getPlayers(cfg.server);
-        players = r.players; me = r.me; servers = r.servers;
+        setPlayers(r.players); me = r.me; servers = r.servers; curServer = r.server;
         const sel = $('#mapServer'); if (!sel) return;
         const cur = cfg.server;
         sel.innerHTML = `<option value="auto">Mi servidor${r.me ? '' : ' (no conectado)'}</option>` + servers.map((s) => `<option value="${s.id}" ${String(s.id) === String(cur) ? 'selected' : ''}>${esc(s.name)} · ${s.players}</option>`).join('');
@@ -427,7 +498,6 @@
     const onTel = () => {
       const t = S.live?.truck;
       if (t && (t.x || t.z)) {
-        if (cfg.follow) { [cam.x, cam.y] = tf(t.x, t.z); }
         if (cfg.trail && S.live.sdk && !S.live.demo) { const last = trail[trail.length - 1]; if (!last || Math.hypot(t.x - last[0], t.z - last[1]) > 300) trail.push([Math.round(t.x), Math.round(t.z)]); }
         const info = $('#mapInfo');
         if (info) {
@@ -440,17 +510,17 @@
     if (cfg.follow) centerMe();
     loadLocs(); loadPlayers().then(loadHeat); loadTrail(); loadFriends(); renderRoute();
     if (S.live?.job?.onJob && !S.navRoute) loadRoute();
-    loadVtc(); const iv5 = setInterval(loadVtc, 45000); const iv = setInterval(loadPlayers, 12000), iv2 = setInterval(loadFriends, 30000), iv3 = setInterval(loadHeat, 20000);
+    loadVtc(); const iv5 = setInterval(loadVtc, 45000); const iv6 = setInterval(loadArea, 3000); const iv = setInterval(loadPlayers, 12000), iv2 = setInterval(loadFriends, 30000), iv3 = setInterval(loadHeat, 20000);
     let lastJobKey = null;
-    const offs = [on('tel', onTel), on('theme', () => (dirty = true)), on('convoy', () => (dirty = true)), on('route', () => { dirty = true; renderRoute(); }),
+    const offs = [on('tel', onTel), on('theme', () => (dirty = true)), on('convoy', () => (dirty = true)), on('route', () => { dirty = true; renderRoute(); if (S.navRoute?.rerouted) toast('Ruta recalculada', 'Te habías salido de la ruta recomendada.', 'mapa', 'alt'); }),
       on('job', (d) => { if (d.phase !== 'started') { S.navRoute = null; renderRoute(); dirty = true; } }),
       on('tel', () => { const j = S.live?.job; const k = j && j.onJob ? j.toCity + j.cargo : null; if (k !== lastJobKey) { lastJobKey = k; if (k && !planning) loadRoute(); } }),
       on('conn', () => { loadPlayers(); loadTrail(); loadFriends(); loadHeat(); })];
-    return () => { clearInterval(iv5); cancelAnimationFrame(raf); clearInterval(iv); clearInterval(iv2); clearInterval(iv3); ro.disconnect(); offs.forEach((f) => f()); };
+    return () => { clearInterval(iv6); clearInterval(iv5); cancelAnimationFrame(raf); clearInterval(iv); clearInterval(iv2); clearInterval(iv3); ro.disconnect(); offs.forEach((f) => f()); };
   };
 
   // Mini mapa estático del recorrido de un trabajo (hoja de detalle)
-  window.drawRouteMini = async function (canvas, path, gameKey = 'ets2') {
+  window.drawRouteMini = async function (canvas, path, gameKey = 'ets2', opts = {}) {
     if (!canvas || !path || path.length < 2) return false;
     const g = GAMES[gameKey] || GAMES.ets2;
     const r = canvas.getBoundingClientRect(); const d = devicePixelRatio || 1;
@@ -477,7 +547,11 @@
         if (e.ok) ctx.drawImage(e.im, sx, sy, sz + 0.5, sz + 0.5);
       }
       ctx.strokeStyle = C.getPropertyValue('--accent'); ctx.lineWidth = 3.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-      ctx.beginPath(); pts.forEach((p, i) => { const [x, y] = toS(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
+      // Los huecos (null) separan tramos: ferris, trenes o cambios de partida
+      ctx.beginPath(); let pen = false;
+      for (const p of path) { if (!p) { pen = false; continue; } const [x, y] = toS(...tf(p[0], p[1])); pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true; }
+      ctx.stroke();
+      if (opts.noEnds) return;
       const [ax, ay] = toS(...pts[0]), [bx, by] = toS(...pts[pts.length - 1]);
       ctx.fillStyle = C.getPropertyValue('--accent2'); ctx.beginPath(); ctx.arc(ax, ay, 6, 0, 7); ctx.fill();
       ctx.fillStyle = C.getPropertyValue('--good'); ctx.beginPath(); ctx.arc(bx, by, 6, 0, 7); ctx.fill();

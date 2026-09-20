@@ -54,7 +54,7 @@ const DEFAULTS = () => ({
     costs: { fuelPrice: 1.6 },
     goals: { dailyKm: 500, weeklyKm: 3000, weeklyRevenue: 150000, weeklyJobs: 15 },
     friends: [],
-    updates: { repo: '', check: true, url: '' },
+    updates: { repo: 'Xito-Development/xito-truck-hub', check: true, url: '' },
     map: { layer: true, follow: true, trail: true, labels: true, server: 'auto' }
   },
   trail: [],
@@ -102,6 +102,7 @@ class Store {
     if (!isObj(d.cities)) d.cities = {};
     if (!Array.isArray(d.settings.friends)) d.settings.friends = [];
     if (d.settings.theme === 'alboran') d.settings.theme = 'costa';
+    if (d.settings.updates && (!d.settings.updates.repo || d.settings.updates.repo === 'kVeTry/xito-truck-hub')) d.settings.updates.repo = 'Xito-Development/xito-truck-hub';
     d.version = 3;
   }
   save(now = false) {

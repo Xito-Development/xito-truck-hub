@@ -199,7 +199,7 @@ public static class Program
             {
                 brand = tc.Brand, name = tc.Name, plate = tc.LicensePlate, plateCountry = tc.LicensePlateCountry,
                 speed = dash.Speed?.Kph ?? 0, cruise = dash.CruiseControl, cruiseSpeed = dash.CruiseControlSpeed?.Kph ?? 0,
-                rpm = dash.RPM, rpmMax = tc.MotorValues.EngineRpmMax, gear = dash.GearDashboards,
+                rpm = dash.RPM, rpmMax = tc.MotorValues.EngineRpmMax, gear = dash.GearDashboards, gearSel = cur.MotorValues.GearValues.Selected, shifter = tc.MotorValues.ShifterTypeValue.ToString(), revGears = tc.MotorValues.ReverseGearCount,
                 fwdGears = tc.MotorValues.ForwardGearCount,
                 fuel = dash.FuelValue.Amount, fuelCap = tc.CapacityValues.Fuel, fuelAvg = dash.FuelValue.AverageConsumption,
                 fuelRange = dash.FuelValue.Range, adblue = dash.AdBlue, adblueCap = tc.CapacityValues.AdBlue,
@@ -211,7 +211,7 @@ public static class Program
                 lights = new
                 {
                     low = cur.LightsValues.BeamLow, high = cur.LightsValues.BeamHigh, beacon = cur.LightsValues.Beacon,
-                    left = cur.LightsValues.BlinkerLeftOn, right = cur.LightsValues.BlinkerRightOn,
+                    left = cur.LightsValues.BlinkerLeftActive, right = cur.LightsValues.BlinkerRightActive, leftOn = cur.LightsValues.BlinkerLeftOn, rightOn = cur.LightsValues.BlinkerRightOn,
                     hazard = cur.LightsValues.HazardWarningLights, parking = cur.LightsValues.Parking
                 },
                 warn = new

@@ -583,3 +583,38 @@ textarea.input { font: inherit; }
 @keyframes lalBounce { 50% { transform: translateY(-4px) rotate(20deg); } }
 @media (max-width: 860px) { .lal-banner { bottom: calc(96px + env(safe-area-inset-bottom)); } .lal-banner .btn { display: none; } }
 .lal-banner .btn { white-space: nowrap; flex: none; }
+.poi-chip i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: 0; }
+
+.route-mini.big { height: min(52vh, 460px); margin-top: 0; }
+.spd-hist { display: flex; align-items: flex-end; gap: 4px; height: 150px; }
+.spd-hist div { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.spd-hist i { width: 100%; border-radius: 6px 6px 2px 2px; background: var(--accent); min-height: 2px; transition: height .8s cubic-bezier(.2, .8, .2, 1); }
+.spd-hist span { font-size: 10px; color: var(--faint); height: 12px; }
+.hr-grid { display: grid; grid-template-columns: 18px repeat(24, 1fr); gap: 3px; align-items: center; }
+.hr-grid i { aspect-ratio: 1; border-radius: 3px; background: var(--accent); }
+.hr-d { font-size: 11px; color: var(--muted); font-weight: 700; }
+.hr-axis { display: flex; justify-content: space-between; margin: 6px 0 0 21px; font-size: 10px; color: var(--faint); }
+
+.upd .upd-hero { display: flex; gap: 16px; align-items: center; margin-bottom: 14px; }
+.upd h2 { margin: 6px 0 2px; }
+.upd-icon { width: 64px; height: 64px; flex: none; border-radius: 20px; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); animation: pop .6s cubic-bezier(.3, 1.6, .5, 1); }
+.upd-icon svg { width: 32px; height: 32px; }
+.upd-notes { max-height: 240px; overflow: auto; }
+.upd-prog { margin-top: 16px; } .upd-prog .bar { height: 10px; margin: 8px 0 4px; } .upd-prog .bar i { transition: width .3s ease; }
+
+/* ---------- barra superior del móvil ---------- */
+.mbar { display: none; }
+@media (max-width: 860px) {
+  .mbar { display: flex; align-items: center; gap: 10px; position: fixed; top: 0; left: 0; right: 0; z-index: 35; padding: calc(8px + env(safe-area-inset-top)) 14px 8px; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  .mbar b { font-size: 17px; }
+  .mbar .grow { flex: 1; }
+  .brand-mark.sm { width: 30px; height: 30px; border-radius: 10px; }
+  .brand-mark.sm svg { width: 18px; height: 18px; }
+  .mbar-conn { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); padding: 5px 10px; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); }
+  .mbar-btn { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; color: var(--muted); background: var(--surface); border: 1px solid var(--line); }
+  .mbar-btn svg { width: 19px; height: 19px; }
+  main { padding-top: calc(66px + env(safe-area-inset-top)); }
+  .head { margin-bottom: 16px; }
+  .head h1 { font-size: 24px; }
+  .dash, .wz { z-index: 96; }
+}

@@ -130,7 +130,8 @@ function update() {
   const le = $('#lim'); if (le) { le.textContent = lim > 0 ? Math.round(spd(lim)) : '–'; le.classList.toggle('none', lim <= 0); }
   const lm = $('#limMark');
   if (lm && lim > 0) { const a = (-225 + Math.min(1, spd(lim) / (mph() ? 90 : 140)) * 270) * Math.PI / 180; lm.setAttribute('x1', 105 + 99 * Math.cos(a)); lm.setAttribute('y1', 105 + 99 * Math.sin(a)); lm.setAttribute('x2', 105 + 88 * Math.cos(a)); lm.setAttribute('y2', 105 + 88 * Math.sin(a)); }
-  const ge = $('#gear'); if (ge) ge.textContent = t.gear > 0 ? t.gear : t.gear < 0 ? 'R' + Math.abs(t.gear) : 'N';
+  let g = t.gear; if (!g && t.gearSel) g = t.gearSel;
+  const ge = $('#gear'); if (ge) ge.textContent = g < 0 ? 'R' + Math.abs(g) : !g ? 'N' : (/auto|arcade/i.test(t.shifter || '') ? 'A' : '') + g;
   const cc = $('#cc'); if (cc) cc.textContent = t.cruise ? `⟳ ${Math.round(spd(t.cruiseSpeed))}` : t.retarder > 0 ? `Retarder ${t.retarder}` : '';
   const rp = $('#rpm'); if (rp) rp.style.width = Math.min(100, (t.rpm / (t.rpmMax || 2500)) * 100) + '%';
   // testigos
@@ -221,7 +222,8 @@ function tile(url) {
   if (imgs.size > 200) imgs.delete(imgs.keys().next().value);
   return e;
 }
-let mmZoom = 1;
+let mmZoom = 1.4, pois = [];
+fetch('/api/map/locations?game=ets2').then((r) => r.json()).then((l) => { pois = l.filter((x) => ['fuel', 'rest', 'service', 'garage', 'company'].includes(x.t)); }).catch(() => {});
 function drawMinimap() {
   const cv = $('#mm'); if (!cv || !live || !live.truck) return;
   const ctx = cv.getContext('2d'), d = devicePixelRatio || 1, W = 280, H = 200;
@@ -250,8 +252,21 @@ function drawMinimap() {
     }
   }
   const acc = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#ffb547';
-  const pts = route?.popular?.points;
+  // Puntos de interés cercanos: gasolineras, descanso, talleres, garajes y empresas
+  if (ppu > 0.02) {
+    const COL = { fuel: '#ffb547', rest: '#6fb6ff', service: '#ff7a59', garage: '#b07cff', company: '#4fd1a1' };
+    const r2 = (Math.hypot(W, H) / ppu) ** 2, s2 = ppu > 0.08 ? 6 : 4;
+    for (const p of pois) {
+      if (p.t === 'company' && ppu < 0.08) continue;
+      const [px, py] = tf(p.x, p.y); if ((px - cx) ** 2 + (py - cy) ** 2 > r2) continue;
+      const [sx, sy] = toS(px, py);
+      ctx.fillStyle = COL[p.t]; ctx.fillRect(sx - s2 / 2, sy - s2 / 2, s2, s2);
+    }
+  }
+  let pts = route?.popular?.points;
   if (pts && pts.length > 1) {
+    let from = 0, bd = Infinity; pts.forEach((p, i) => { const d = Math.hypot(p[0] - cx, p[1] - cy); if (d < bd) { bd = d; from = i; } });
+    pts = pts.slice(Math.max(0, from - 1));
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 7; ctx.beginPath(); pts.forEach((p, i) => { const [x, y] = toS(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
     ctx.strokeStyle = acc; ctx.lineWidth = 4; ctx.stroke();
@@ -327,7 +342,13 @@ function onCmd(c) {
   if (c === 'toggle-map') post({ overlay: { widgets: { nav: { on: O().widgets?.nav?.on === false } } } });
   else if (c === 'clear-messages') { msgs = []; renderMsgs(); }
   else if (c === 'cycle-style') { const order = ['hud', 'card', 'minimal']; post({ overlay: { style: order[(order.indexOf(O().style || 'hud') + 1) % 3] } }); }
-  else if (c === 'zoom-map') { mmZoom = mmZoom >= 2 ? 0.5 : mmZoom * 2; }
+  else if (c === 'zoom-map') {
+    const Z = [0.35, 0.7, 1.4, 2.8];
+    const i = Z.findIndex((z) => Math.abs(z - mmZoom) < 0.01);
+    mmZoom = Z[(i + 1) % Z.length];
+    const nv = $('#mm')?.closest('.minimap');
+    if (nv) { nv.dataset.zoom = ['Región', 'Carretera', 'Cerca', 'Detalle'][(i + 1) % Z.length]; nv.classList.remove('zflash'); void nv.offsetWidth; nv.classList.add('zflash'); }
+  }
   else if (c === 'reset') post({ overlay: { widgets: DEFAULTS } });
 }
 

@@ -4,7 +4,8 @@
 const crypto = require('crypto');
 const mqtt = require('mqtt');
 
-const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
+// El primero usa el puerto 443 (el de las webs), así funciona aunque la red bloquee puertos raros
+const BROKERS = ['wss://public:public@public.cloud.shiftr.io', 'wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
 const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function newCode() { let s = ''; for (let i = 0; i < 12; i++) s += ALPHA[crypto.randomInt(ALPHA.length)]; return s.replace(/(.{4})(?=.)/g, '$1-'); }
 function derive(code) {
@@ -32,7 +33,7 @@ class Relay {
     this.client = null; this.k = null; this.lastClient = 0; this.lastTel = 0; this.brokerIdx = 0; this.state = 'off'; this.error = '';
   }
   get cfg() { return this.store.data.settings.remote || {}; }
-  status() { return { enabled: !!this.cfg.enabled, code: this.cfg.code || '', state: this.state, broker: this.cfg.broker || BROKERS[this.brokerIdx], clientsActive: Date.now() - this.lastClient < 60000, error: this.error }; }
+  status() { return { enabled: !!this.cfg.enabled, code: this.cfg.code || '', state: this.state, broker: (this.cfg.broker || BROKERS[this.brokerIdx]).replace(/\/\/[^@]*@/, '//'), clientsActive: Date.now() - this.lastClient < 60000, error: this.error }; }
   start() {
     this.stop();
     const c = this.cfg;
@@ -48,11 +49,11 @@ class Relay {
       cl.subscribe([`${this.k.topic}/req`, `${this.k.topic}/hi`], { qos: 0 });
       this.publish({ t: 'pcup' });
     });
-    cl.on('error', (e) => { this.error = e.message; });
+    cl.on('error', (e) => { this.error = e.message; console.warn('[remoto]', BROKERS[this.brokerIdx].replace(/\/\/[^@]*@/, '//'), e.message); });
     cl.on('offline', () => {
       this.state = 'connecting';
       // Si un bróker falla varias veces seguidas se prueba el siguiente
-      if (++failed >= 3 && !c.broker) { this.brokerIdx = (this.brokerIdx + 1) % BROKERS.length; setTimeout(() => this.start(), 500); }
+      if (++failed >= 2 && !c.broker) { this.brokerIdx = (this.brokerIdx + 1) % BROKERS.length; setTimeout(() => this.start(), 500); }
     });
     cl.on('message', async (topic, payload) => {
       let m; try { m = dec(this.k.key, payload.toString()); } catch { return; }

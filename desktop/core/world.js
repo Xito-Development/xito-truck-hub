@@ -23,17 +23,36 @@ function fullmap() {
 // Ciudades y países del mapa (TruckersMP)
 function locations(game = 'ets2') {
   const file = { ets2: 'locations_ets2.min.json', ats: 'locations_ats.min.json', promods: 'locations_promods.min.json' }[game] || 'locations_ets2.min.json';
-  return cached('loc-' + game, 24 * 3600e3, async () => {
+  return cached('loc3-' + game, 24 * 3600e3, async () => {
     const raw = await (await get('https://map.truckersmp.com/' + file, 30000)).json();
     const out = [];
+    // Puntos de interés del mapa: gasolineras, áreas de descanso, talleres, garajes, concesionarios, empresas…
+    const KEEP = { fuel: 'fuel', parking: 'rest', service: 'service', garage: 'garage', dealer: 'dealer', recruitment: 'recruit', ferry: 'port', business: 'company' };
+    const pretty = (id) => String(id || '').replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
     for (const c of raw) {
       out.push({ t: 'country', n: c.name, x: c.x, y: c.y });
-      for (const p of c.pois || []) if (p.type === 'city') out.push({ t: 'city', n: p.name, x: p.x, y: p.y, c: c.name });
+      const all = [];
+      for (const p of c.pois || []) { all.push(p); for (const q of p.pois || []) all.push(q); }
+      for (const p of all) {
+        if (p.type === 'city') out.push({ t: 'city', n: p.name, x: p.x, y: p.y, c: c.name });
+        else if (KEEP[p.type]) out.push({ t: KEEP[p.type], n: p.type === 'business' ? pretty(p.name) : '', x: Math.round(p.x), y: Math.round(p.y), c: c.name });
+        else if (p.type === 'overlay' && p.name === 'toll_ico') out.push({ t: 'toll', n: '', x: Math.round(p.x), y: Math.round(p.y) });
+        else if (p.type === 'overlay' && p.name === 'weigh_ico') out.push({ t: 'weigh', n: '', x: Math.round(p.x), y: Math.round(p.y) });
+      }
     }
     return out;
   });
 }
 
+// Jugadores de una zona concreta (tiempo real, mucho más ligero que el mapa completo)
+async function area({ x1, y1, x2, y2, server }) {
+  const q = `x1=${Math.round(Math.min(x1, x2))}&y1=${Math.round(Math.max(y1, y2))}&x2=${Math.round(Math.max(x1, x2))}&y2=${Math.round(Math.min(y1, y2))}&server=${server || 2}`;
+  return cached('area-' + q, 2500, async () => {
+    const r = await get('https://tracker.ets2map.com/v3/area?' + q, 8000);
+    const j = await r.json();
+    return (j.Data || []).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name]);
+  });
+}
 async function players({ server, tmpId }) {
   const map = await fullmap();
   const me = tmpId ? map.find((p) => p.MpId === Number(tmpId)) : null;
@@ -120,4 +139,4 @@ function heatList(game = 'ets2', min = 0) {
   for (const [k, v] of m) { if (v < min) continue; const [x, y] = k.split(','); out.push([(+x + 0.5) * 1000, (+y + 0.5) * 1000, Math.round(v * 100) / 100]); }
   return out;
 }
-module.exports = { players, locations, friends, checkUpdate, newer, fullmap, startHeat, stopHeat, heatList, touchHeat, GAME_TYPE };
+module.exports = { area, players, locations, friends, checkUpdate, newer, fullmap, startHeat, stopHeat, heatList, touchHeat, GAME_TYPE };

@@ -36,7 +36,7 @@ class Convoy extends EventEmitter {
     const cl = mqtt.connect(BROKERS[this.brokerIdx], { clientId: 'xth-cv-' + crypto.randomBytes(4).toString('hex'), connectTimeout: 12000, reconnectPeriod: 8000, keepalive: 45 });
     this.client = cl; this.online = false; let fails = 0;
     cl.on('connect', () => { this.online = true; fails = 0; cl.subscribe(this.k.topic); this.publish({ t: 'hi' }); this.emit('update', this.state()); });
-    cl.on('offline', () => { this.online = false; if (++fails >= 3) { this.brokerIdx = (this.brokerIdx + 1) % BROKERS.length; setTimeout(() => this.start(), 500); } });
+    cl.on('offline', () => { this.online = false; if (++fails >= 2) { this.brokerIdx = (this.brokerIdx + 1) % BROKERS.length; setTimeout(() => this.start(), 500); } });
     cl.on('error', () => {});
     cl.on('message', (_t, payload) => {
       let m; try { m = dec(this.k.key, payload.toString()); } catch { return; }

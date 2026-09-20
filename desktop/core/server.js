@@ -169,6 +169,36 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
       return { trail: step === 1 ? t : t.filter((p, i) => p === null || i % step === 0) };
     },
     'GET /api/map/cities': () => store.data.cities,
+    'GET /api/journeys': async () => {
+      const d = store.data, t = d.trail, step = Math.max(1, Math.ceil(t.length / 8000));
+      const del = d.jobs.filter((j) => j.status === 'delivered');
+      // Ciudades y países visitados (usando el mapa de TruckersMP para saber el país)
+      const locs = await world.locations('ets2').catch(() => []);
+      const flat = (v) => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+      const cityCountry = new Map(locs.filter((l) => l.t === 'city').map((l) => [flat(l.n), l.c]));
+      const cities = {};
+      for (const j of d.jobs) for (const c of [j.fromCity, j.toCity]) if (c) cities[c] = (cities[c] || 0) + 1;
+      const countries = {};
+      for (const [c, n] of Object.entries(cities)) { const k = cityCountry.get(flat(c)); if (k) countries[k] = (countries[k] || 0) + n; }
+      const sumBy = (arr, f) => arr.reduce((a, x) => a + (f(x) || 0), 0);
+      const top = (m) => Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
+      return {
+        at: Date.now(),
+        trail: step === 1 ? t : t.filter((p, i) => p === null || i % step === 0),
+        hist: d.hist || null,
+        cities: top(cities).slice(0, 40), cityCount: Object.keys(cities).length,
+        countries: top(countries), fleet: stats.fleet(d),
+        speed: { max: Math.max(0, ...del.map((j) => j.maxSpeed || 0)), avg: del.length ? sumBy(del, (j) => j.avgSpeed) / del.length : 0 },
+        totals: { km: d.totals.km, driveSec: d.totals.driveSec, fuel: d.totals.fuel, jobs: del.length },
+        longest: del.slice().sort((a, b) => (b.distanceKm || b.drivenKm || 0) - (a.distanceKm || a.drivenKm || 0)).slice(0, 5).map((j) => ({ from: j.fromCity, to: j.toCity, km: j.distanceKm || j.drivenKm, at: j.endedAt, path: j.path }))
+      };
+    },
+    'GET /api/map/area': async (q) => {
+      world.touchHeat();
+      let server = q.get('server');
+      if (!server || server === 'auto') { const r = await world.players({ server: 'auto', tmpId: store.data.settings.tmpId }).catch(() => null); server = r?.server || 2; }
+      return { server: +server, players: await world.area({ x1: +q.get('x1'), y1: +q.get('y1'), x2: +q.get('x2'), y2: +q.get('y2'), server }) };
+    },
     'GET /api/map/heat': (q) => { world.touchHeat(); return { cells: world.heatList(q.get('game') || 'ets2', +q.get('min') || 0.3), hot: traffic.nearby?.server?.top || [] }; },
     'GET /api/route': async (q) => {
       const num = (k) => (q.get(k) != null && q.get(k) !== '' ? +q.get(k) : null);
@@ -176,6 +206,7 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
       return nav.compute({ game: q.get('game') || undefined, from: fx != null && fy != null ? [fx, fy] : null, to: tx != null && ty != null ? [tx, ty] : null, toName: q.get('toName') || undefined });
     },
     'GET /api/friends': async () => world.friends(store.data.settings.friends || [], tracker.live?.truck ? { x: tracker.live.truck.x, z: tracker.live.truck.z } : null),
+    'POST /api/update/install': async (_q, b) => { if (!hooks.installUpdate) throw new Error('Solo disponible en el programa de Windows'); if (!/^https:\/\/(github\.com|objects\.githubusercontent\.com)\//.test(b.url || '')) throw new Error('Dirección de descarga no válida'); hooks.installUpdate(b.url, b.version); return { ok: true }; },
     'GET /api/update/check': async (q) => world.checkUpdate(q.get('repo') || store.data.settings.updates?.repo, version, store.data.settings.updates?.url),
     'POST /api/jobs/update': async (_q, b) => {
       const j = store.data.jobs.find((x) => x.id === b.id);

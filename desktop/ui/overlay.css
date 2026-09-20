@@ -112,3 +112,7 @@ body.edit .w.hidden { display: block; opacity: .35; }
 
 .lal-pill { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 99px; background: rgba(58, 13, 20, .85); border: 1px solid rgba(255, 90, 100, .5); color: #ffd7da; font-size: 12.5px; }
 .lal-pill small { opacity: .75; }
+
+.minimap::after { content: attr(data-zoom); position: absolute; top: 8px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 99px; background: rgba(10,15,24,.8); color: #eef2f8; font-size: 12px; font-weight: 700; opacity: 0; pointer-events: none; }
+.minimap.zflash::after { animation: zFlash 1.4s ease; }
+@keyframes zFlash { 10%, 70% { opacity: 1; } 100% { opacity: 0; } }

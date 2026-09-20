@@ -99,6 +99,12 @@ class Tracker extends EventEmitter {
     const day = persist ? this.store.day() : null, tot = this.store.data.totals;
 
     if (!t.paused && tr.speed > 2) { this.session.driveSec += dt; if (persist) { tot.driveSec += dt; day.driveSec += dt; } }
+    // Histogramas: velocidad (tramos de 10 km/h) y horas de conducción por día de la semana y hora
+    if (persist && !t.paused && tr.speed > 2) {
+      const H = this.store.data.hist || (this.store.data.hist = { speed: new Array(15).fill(0), hours: Array.from({ length: 7 }, () => new Array(24).fill(0)) });
+      H.speed[Math.min(14, Math.floor(tr.speed / 10))] += dt;
+      const n = new Date(); H.hours[(n.getDay() + 6) % 7][n.getHours()] += dt;
+    }
     if (this.lastOdo != null) {
       const d = tr.odometer - this.lastOdo;
       if (d > 0 && d < 3) { this.session.km += d; if (persist) { tot.km += d; day.km += d; } if (this.cur) this.cur.drivenKm += d; }

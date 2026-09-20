@@ -114,6 +114,7 @@ const P = {
   botonera: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
   tacho: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9 2h6"/>',
   horn: '<path d="M3 10v4h3l7 5V5L6 10z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a7.5 7.5 0 0 1 0 11"/>',
+  recorridos: '<path d="M4 19c3-6 5-2 8-8s5-3 8-7"/><circle cx="4" cy="19" r="1.6"/><circle cx="20" cy="4" r="1.6"/>',
   plug: '<path d="M9 2v6"/><path d="M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/>'
 };
 const ic = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
@@ -168,7 +169,7 @@ function tmpIds() {
 // ---------- tiempo real ----------
 // ---------- acceso remoto (desde cualquier lugar, cifrado de extremo a extremo) ----------
 const Remote = (() => {
-  const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
+  const BROKERS = ['wss://public:public@public.cloud.shiftr.io', 'wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
   let client = null, key = null, topic = '', cid = '', pending = new Map(), hb = null, idx = 0, fails = 0;
   const b64 = { to: (u8) => btoa(String.fromCharCode(...u8)), from: (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)) };
   async function derive(code) {
@@ -201,7 +202,7 @@ const Remote = (() => {
       const hi = async () => cl.publish(`${topic}/hi`, await enc({ cid, t: 'hi' }));
       hi(); clearInterval(hb); hb = setInterval(hi, 20000);
     });
-    cl.on('offline', () => { if (S.mode === 'remote') { S.connected = false; emit('conn'); } if (++fails >= 3) { idx = (idx + 1) % BROKERS.length; setTimeout(() => S.mode === 'remote' && connect(code), 300); } });
+    cl.on('offline', () => { if (S.mode === 'remote') { S.connected = false; emit('conn'); } if (++fails >= 2) { idx = (idx + 1) % BROKERS.length; setTimeout(() => S.mode === 'remote' && connect(code), 300); } });
     cl.on('message', async (t, payload) => {
       let m; try { m = await dec(payload.toString()); } catch { return; }
       if (t.endsWith('/res/' + cid)) { const p = pending.get(m.id); if (p) { pending.delete(m.id); m.status === 200 ? p.ok(m.body) : p.ko(new Error(m.body?.error || 'Error ' + m.status)); } return; }
@@ -285,6 +286,7 @@ function onHubMsg(msg) {
   if (msg.t === 'game') { S.game = msg.d; emit('game'); }
   if (msg.t === 'convoy') { S.convoy = msg.d; emit('convoy'); }
   if (msg.t === 'laliga') { S.laliga = msg.d; renderLaliga(); }
+  if (msg.t === 'update') emit('update', msg.d);
   if (msg.t === 'hello' && msg.laliga) { S.laliga = msg.laliga; renderLaliga(); }
   if (msg.t === 'hello') { if (msg.convoy) { S.convoy = msg.convoy; emit('convoy'); } if (msg.tacho) S.tacho = msg.tacho; }
   if (msg.t === 'hello' && msg.game) { S.game = msg.game; emit('game'); }
@@ -331,6 +333,7 @@ function syncChrome() {
   if (IS_ELECTRON) window.hubNative.setTheme(bg, fg);
   const SB = IS_CAP && window.Capacitor?.Plugins?.StatusBar;
   if (SB) {
+    SB.setOverlaysWebView?.({ overlay: false }).catch?.(() => {});
     const light = ['amanecer', 'niebla'].includes(document.documentElement.dataset.theme);
     SB.setStyle({ style: light ? 'LIGHT' : 'DARK' }).catch(() => {});
     SB.setBackgroundColor({ color: bg.length === 4 ? '#' + [...bg.slice(1)].map((c) => c + c).join('') : bg }).catch(() => {});
@@ -456,6 +459,7 @@ const NAV = [
   { id: 'mapa', label: 'Mapa' },
   { id: 'entregas', label: 'Entregas' },
   { id: 'stats', label: 'Estadísticas' },
+  { id: 'recorridos', label: 'Mis recorridos' },
   { id: 'eventos', label: 'Eventos' },
   { id: 'trafico', label: 'Tráfico' },
   { id: 'convoy', label: 'Convoy' },
@@ -468,6 +472,7 @@ const MOB_MAIN = ['cabina', 'mapa', 'botonera', 'stats'];
 let cleanup = null;
 
 function buildNav() {
+  const mb = $('#mbar'); if (mb) { mb.querySelector('.brand-mark').innerHTML = ic('truck'); mb.querySelector('.mbar-btn').innerHTML = ic('ajustes'); }
   $('#rail').innerHTML = `
     <div class="brand"><span class="brand-mark">${ic('truck')}</span><span class="brand-name">Xito Truck Hub<small>Xito Development</small></span></div>
     ${NAV.map((n) => `<button class="nav-btn" data-go="${n.id}">${ic(n.id)}<span>${n.label}</span></button>`).join('')}
@@ -502,8 +507,15 @@ function go(route, push = true) {
   $('#main').scrollTop = 0;
   cleanup = VIEWS[route](v) || null;
   markNav();
+  const mt = $('#mbarTitle'); if (mt) mt.textContent = (NAV.find((n) => n.id === route) || {}).label || '';
 }
 function updateConn() {
+  const mc = $('#mbarConn');
+  if (mc) {
+    const st = S.status?.state;
+    mc.querySelector('.dot').className = 'dot ' + (!S.connected ? '' : st === 'connected' ? 'on' : 'wait');
+    mc.querySelector('span:last-child').textContent = !S.connected ? 'Sin PC' : st === 'connected' ? 'En ruta' : 'PC';
+  }
   const dot = $('#railDot'), txt = $('#railConn');
   if (!dot) return;
   const st = S.status?.state;
@@ -670,7 +682,7 @@ VIEWS.cabina = (root) => {
     if (lim !== lastLimit && lim > 0) { limEl.classList.remove('pop'); void limEl.offsetWidth; limEl.classList.add('pop'); }
     lastLimit = lim;
     $('#speedBox').classList.toggle('over', lim > 0 && t.speed > lim + 3);
-    $('#gear').textContent = gearTxt(t.gear);
+    $('#gear').textContent = gearLabel(t);
     $('#cruise').textContent = t.cruise ? `${Math.round(U.speed(t.cruiseSpeed))} ${U.speedUnit()}` : 'Apagado';
     $('#range').textContent = U.dist(t.fuelRange, 0);
     $('#odo').textContent = U.dist(t.odometer, 0);
@@ -766,6 +778,14 @@ function nextVia() {
   return { name: v.name, km: Math.hypot(v.x - t.x, v.y - t.z) / 1000, left: rest.length };
 }
 const gearTxt = (g) => (g > 0 ? String(g) : g < 0 ? 'R' + Math.abs(g) : 'N');
+// Marcha como la muestra el salpicadero del juego: A12 (automática), 8 (manual), R1, N
+function gearLabel(t) {
+  let g = t.gear;
+  if (!g && t.gearSel) g = t.gearSel;
+  if (g < 0) return 'R' + Math.abs(g);
+  if (!g) return 'N';
+  return (/auto|arcade/i.test(t.shifter || '') ? 'A' : '') + g;
+}
 
 // ---------- modo salpicadero (pantalla completa, ideal para el móvil en el soporte) ----------
 async function openDash() {
@@ -791,7 +811,7 @@ async function openDash() {
     const tf = S.traffic, TL = tf ? (TRAF[tf.level] || TRAF.low) : null; $('#dTraf').textContent = TL ? `Tráfico ${TL[0].toLowerCase()}` : ''; $('#dTraf').className = 'pill ' + (TL ? TL[1] : 'hidden');
     $('#dLim').textContent = lim > 0 ? lim : '–'; $('#dLim').classList.toggle('none', lim <= 0);
     $('#dSpeedBox').classList.toggle('over', lim > 0 && t.speed > lim + 3);
-    $('#dGear').textContent = gearTxt(t.gear);
+    $('#dGear').textContent = gearLabel(t);
     $('#dJob').innerHTML = j && j.onJob ? `<b>${esc(j.toCity)}</b><span>${U.dist(n.distance / 1000)} · ≈ ${dur(n.time)}</span>` : '<span>Sin trabajo activo</span>';
     $('#dFuel').style.width = clamp(t.fuel / (t.fuelCap || 1), 0, 1) * 100 + '%';
     const L = t.lights || {}, dk = { blinkLeft: L.left && !L.hazard, blinkRight: L.right && !L.hazard, lights: L.low, hazard: L.hazard };
@@ -970,11 +990,13 @@ VIEWS.stats = (root) => {
   $('#rangeChips').onclick = (e) => { const c = e.target.closest('[data-r]'); if (!c) return; range = c.dataset.r; LS.set('statsRange', range); $$('#rangeChips .chip').forEach((x) => x.setAttribute('aria-pressed', x === c)); load(); };
   let req = 0;
   const load = async () => {
-    if (!S.connected) { $('#st').innerHTML = notConnectedCard(); return; }
     const my = ++req;
-    let s; try { s = await api(`/api/stats?range=${range}`); } catch (e) { if ($('#st')) $('#st').innerHTML = `<div class="card empty"><b>No se pudieron calcular</b>${esc(e.message)}</div>`; return; }
+    let s, offline = false;
+    if (!S.connected) { s = LS.get('cache.stats.' + range, null); offline = true; if (!s) { $('#st').innerHTML = notConnectedCard(); return; } }
+    else { try { s = await api(`/api/stats?range=${range}`); LS.set('cache.stats.' + range, { ...s, cachedAt: Date.now() }); } catch (e) { s = LS.get('cache.stats.' + range, null); offline = true; if (!s) { if ($('#st')) $('#st').innerHTML = `<div class="card empty"><b>No se pudieron calcular</b>${esc(e.message)}</div>`; return; } } }
     if (my !== req || !$('#st')) return;
     const T = s.totals, R = s.rank;
+    if (offline && s.cachedAt) setTimeout(() => { const st = $('#st'); if (st && !$('#offNote')) st.insertAdjacentHTML('afterbegin', `<p class="muted" id="offNote" style="margin-bottom:12px">Sin conexión con el PC · datos guardados el ${new Date(s.cachedAt).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>`); });
     const rec = (label, j, v) => j ? `<button class="item" data-rec="${j.id}"><span class="ico">${ic('star')}</span><span class="grow"><span class="t">${label}</span><span class="s">${esc(j.fromCity)} → ${esc(j.toCity)}</span></span><b class="num" style="font-size:19px">${v}</b></button>` : '';
     const fm = { km: (v) => `${n0(v)} km`, revenue: (v) => money(v), jobs: (v) => n0(v), xp: (v) => `${n0(v)} XP` };
     const achDone = s.achievements.filter((a) => a.done).length;
@@ -1032,6 +1054,48 @@ VIEWS.stats = (root) => {
   };
   load();
   const offs = [on('job', (d) => d.phase !== 'started' && load()), on('conn', load)];
+  return () => offs.forEach((f) => f());
+};
+
+// ---------- Recorridos: por dónde has ido (también sin conexión en el móvil) ----------
+VIEWS.recorridos = (root) => {
+  const render = (J, offline) => {
+    const T = J.totals || {}, H = J.hist;
+    const spMax = H ? Math.max(1, ...H.speed) : 1;
+    const hrMax = H ? Math.max(1, ...H.hours.flat()) : 1;
+    root.innerHTML = `<div class="head"><div><h1>Mis recorridos</h1><p>${offline ? `Datos guardados el ${new Date(J.at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · sin conexión con el PC` : 'Por dónde has ido, a qué velocidad y con qué camiones'}</p></div></div>
+      <section class="card" style="padding:12px"><canvas class="route-mini big" id="trailMap" aria-label="Mapa de todos tus recorridos"></canvas>
+        <div class="row wrap between" style="margin-top:10px"><span class="muted" style="font-size:13px">${n0((J.trail || []).filter(Boolean).length)} puntos registrados</span>${!offline ? `<button class="btn ghost" data-go="mapa">${ic('mapa')}Abrir en el mapa</button>` : ''}</div></section>
+      <div class="grid g4 keep" style="margin-top:16px">
+        <section class="card kpi"><span class="v">${n0(U.distN(T.km || 0))}<small>${U.distUnit()}</small></span><span class="l">Recorridos en total</span></section>
+        <section class="card kpi"><span class="v">${dur(T.driveSec)}</span><span class="l">Al volante</span></section>
+        <section class="card kpi"><span class="v">${n0(U.speed(J.speed?.avg || 0))}<small>${U.speedUnit()}</small></span><span class="l">Velocidad media · máx. ${n0(U.speed(J.speed?.max || 0))}</span></section>
+        <section class="card kpi"><span class="v">${n0(J.cityCount || 0)}</span><span class="l">Ciudades · ${(J.countries || []).length} países</span></section>
+      </div>
+      <div class="grid g2" style="margin-top:16px">
+        <section class="card"><h2>¿A qué velocidad conduces?</h2>${H ? `<div class="spd-hist">${H.speed.map((v, i) => `<div title="${i * 10}-${i * 10 + 10} km/h: ${dur(v)}"><i style="height:${(v / spMax) * 100}%"></i><span>${i % 2 === 0 ? i * 10 : ''}</span></div>`).join('')}</div><p class="muted" style="font-size:12px;margin-top:6px">Tiempo al volante por tramos de 10 km/h</p>` : '<p class="muted">Se irá llenando a medida que conduzcas.</p>'}</section>
+        <section class="card"><h2>¿Cuándo conduces?</h2>${H ? `<div class="hr-grid">${H.hours.map((row, d) => `<span class="hr-d">${['L', 'M', 'X', 'J', 'V', 'S', 'D'][d]}</span>${row.map((v, h) => `<i title="${['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'][d]} ${h}:00 · ${dur(v)}" style="opacity:${v ? 0.2 + (v / hrMax) * 0.8 : 0.06}"></i>`).join('')}`).join('')}</div><div class="hr-axis"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>23 h</span></div>` : '<p class="muted">Se irá llenando a medida que conduzcas.</p>'}</section>
+        <section class="card"><h2>Países</h2>${hbars((J.countries || []).slice(0, 10))}</section>
+        <section class="card"><h2>Ciudades más visitadas</h2>${hbars((J.cities || []).slice(0, 10))}</section>
+        <section class="card"><h2>Camiones usados</h2>${(J.fleet || []).length ? `<div class="list">${J.fleet.slice(0, 8).map((f) => `<div class="item"><span class="ico">${ic('truck')}</span><span class="grow"><span class="t">${esc(f.truck || f.key)}</span><span class="s">${n0(f.jobs)} entregas · ${U.dist(f.km, 0)}${f.plate ? ' · ' + esc(f.plate) : ''}</span></span>${f.avgScore != null ? `<span class="grade sm g-${gradeOf(f.avgScore).replace('+', 'p')}">${gradeOf(f.avgScore)}</span>` : ''}</div>`).join('')}</div>` : '<p class="muted">Aún no hay entregas.</p>'}</section>
+        <section class="card"><h2>Viajes más largos</h2>${(J.longest || []).length ? `<div class="list">${J.longest.map((l, i) => `<div class="item"><span class="ico">${i + 1}</span><span class="grow"><span class="t">${esc(l.from)} → ${esc(l.to)}</span><span class="s">${ago(l.at)}</span></span><b class="num">${U.dist(l.km || 0, 0)}</b></div>`).join('')}</div>` : '<p class="muted">Aún no hay entregas.</p>'}</section>
+      </div>`;
+    const cv = $('#trailMap');
+    if (cv && window.drawRouteMini && (J.trail || []).filter(Boolean).length > 1) requestAnimationFrame(() => drawRouteMini(cv, J.trail, 'ets2', { noEnds: true }));
+    else if (cv) cv.outerHTML = `<div class="empty" style="padding:40px 10px">${ic('recorridos')}<b>Aún no hay recorridos</b>Conduce y aquí se irá dibujando todo lo que recorras, carretera a carretera.</div>`;
+  };
+  const load = async () => {
+    const cached = LS.get('cache.journeys', null);
+    if (!S.connected) {
+      if (cached) return render(cached, true);
+      root.innerHTML = `<div class="head"><div><h1>Mis recorridos</h1><p>Por dónde has ido</p></div></div>${notConnectedCard()}`; return;
+    }
+    if (cached) render(cached, false); else root.innerHTML = `<div class="head"><div><h1>Mis recorridos</h1></div></div>${sk(300)}`;
+    try { const J = await api('/api/journeys', { timeout: 30000 }); try { LS.set('cache.journeys', J); } catch { const J2 = { ...J, trail: (J.trail || []).filter((_, i) => i % 3 === 0) }; LS.set('cache.journeys', J2); } render(J, false); }
+    catch (e) { if (!cached) root.innerHTML = `<div class="card empty"><b>No se pudieron cargar</b>${esc(e.message)}</div>`; }
+  };
+  load();
+  const offs = [on('conn', load), on('job', (d) => d.phase === 'delivered' && load())];
   return () => offs.forEach((f) => f());
 };
 
@@ -1592,6 +1656,12 @@ const CHANGELOG = {
     'Android: notificaciones en segundo plano, pantalla siempre encendida y pantalla de inicio propia',
     'Correcciones: overlay que tapaba el HUB, elección de monitor, registro de errores y menor consumo de datos',
     'Aviso cuando TruckersMP cae en España por los bloqueos del fútbol de LaLiga (según hayahora.futbol), y cuando vuelve',
+    'Mapa con gasolineras, descanso, talleres, garajes y empresas; jugadores casi en tiempo real y movimiento más fluido',
+    'Navegación en tiempo real: la ruta recomendada se recalcula si te sales y solo se dibuja lo que queda',
+    'Zoom del mini mapa del overlay con F5 (4 niveles)',
+    'Nueva pestaña Recorridos: mapa de todo lo recorrido, velocidad, horarios, países, ciudades y camiones (también sin conexión en el móvil)',
+    'Actualizador propio: descarga e instala la nueva versión con barra de progreso; el móvil también avisa',
+    'Arreglados los intermitentes y la marcha mostrada; nueva barra superior en el móvil',
     'El tema «Alborán» pasa a llamarse «Costa»'
   ],
   '1.3.0': [
@@ -1632,11 +1702,44 @@ function showChangelog(v, from) {
   document.body.appendChild(back);
   back.querySelector('[data-ok]').onclick = () => back.remove();
 }
+// ---------- actualizador con interfaz propia ----------
+function showUpdate(r) {
+  if ($('.upd-modal')) return;
+  const back = document.createElement('div'); back.className = 'modal-back upd-modal';
+  const notes = Array.isArray(r.notes) ? r.notes : String(r.notes || '').split(/\r?\n/).map((x) => x.replace(/^[-*•]\s*/, '').trim()).filter(Boolean);
+  back.innerHTML = `<div class="modal upd"><div class="upd-hero"><span class="upd-icon">${ic('download')}</span><div><span class="pill acc">Nueva versión</span><h2>Xito Truck Hub ${esc(r.latest)}</h2><p class="muted">Tienes la ${esc(APP_VERSION)}. Se actualiza encima: tus datos no se tocan.</p></div></div>
+    ${notes.length ? `<div class="list upd-notes">${notes.slice(0, 8).map((n) => `<div class="item"><span class="ico good">${ic('check')}</span><span class="grow" style="white-space:normal">${esc(n)}</span></div>`).join('')}</div>` : ''}
+    <div class="upd-prog hidden" id="updProg"><div class="row between"><b id="updPhase">Descargando…</b><span class="num" id="updPct">0 %</span></div><div class="bar"><i id="updBar" style="width:0"></i></div><small class="muted" id="updInfo"></small></div>
+    <div class="row wrap" style="justify-content:flex-end;margin-top:18px;gap:8px" id="updBtns">
+      <button class="btn ghost" data-later>Más tarde</button>
+      ${IS_ELECTRON && r.exe ? '<button class="btn primary" data-go-upd>Actualizar ahora</button>' : `<a class="btn primary" href="${esc((IS_CAP ? r.apk : r.exe) || r.url || '#')}" target="_blank" rel="noopener" data-dl>${IS_CAP ? 'Descargar APK' : 'Descargar instalador'}</a>`}
+    </div>${IS_CAP ? '<p class="muted" style="font-size:12px;margin-top:10px">Al terminar la descarga, abre el archivo y pulsa «Actualizar». Android conserva tus datos.</p>' : ''}</div>`;
+  document.body.appendChild(back);
+  back.querySelector('[data-later]').onclick = () => { LS.set('skipUpdate', r.latest); back.remove(); };
+  const go = back.querySelector('[data-go-upd]');
+  if (go) go.onclick = async () => {
+    $('#updProg').classList.remove('hidden'); $('#updBtns').classList.add('hidden');
+    try { await post('/api/update/install', { url: r.exe, version: r.latest }); } catch (e) { $('#updPhase').textContent = e.message; $('#updBtns').classList.remove('hidden'); }
+  };
+}
+on('update', (u) => {
+  const box = $('#updProg'); if (!box) return;
+  const pct = u.pct || 0;
+  $('#updBar').style.width = pct + '%'; $('#updPct').textContent = pct + ' %';
+  const mb = (x) => (x / 1048576).toFixed(1).replace('.', ',');
+  if (u.phase === 'download') { $('#updPhase').textContent = 'Descargando…'; if (u.total) $('#updInfo').textContent = `${mb(u.got)} de ${mb(u.total)} MB`; }
+  else if (u.phase === 'install') { $('#updPhase').textContent = 'Instalando… acepta el permiso de Windows'; $('#updInfo').textContent = 'El HUB se cerrará y volverá a abrirse solo.'; }
+  else if (u.phase === 'restart') { $('#updPhase').textContent = 'Reiniciando…'; }
+  else if (u.phase === 'error') { $('#updPhase').textContent = 'No se pudo actualizar: ' + (u.error || ''); $('#updBtns').classList.remove('hidden'); }
+});
 function checkVersion() {
   const last = LS.get('lastVersion', null);
   LS.set('lastVersion', APP_VERSION);
   if (last && last !== APP_VERSION) setTimeout(() => showChangelog(APP_VERSION, last), 800);
-  if ((S.settings?.updates?.check !== false) && (S.settings?.updates?.repo || S.settings?.updates?.url || LS.get('repo', '') || LS.get('updUrl', ''))) setTimeout(() => checkUpdate(false).catch(() => {}), 4000);
+  if (S.settings?.updates?.check !== false) {
+    setTimeout(() => checkUpdate(false).catch(() => {}), 4000);
+    setInterval(() => checkUpdate(false).catch(() => {}), 6 * 3600e3);
+  }
 }
 function newerV(a, b) {
   const pa = String(a).replace(/^v/, '').split('.').map(Number), pb = String(b).replace(/^v/, '').split('.').map(Number);
@@ -1644,7 +1747,7 @@ function newerV(a, b) {
   return false;
 }
 async function checkUpdate(manual) {
-  const repo = S.settings?.updates?.repo || LS.get('repo', '');
+  const repo = S.settings?.updates?.repo || LS.get('repo', '') || 'Xito-Development/xito-truck-hub';
   if (S.settings?.updates?.repo) LS.set('repo', S.settings.updates.repo);
   const jsonUrl = S.settings?.updates?.url || LS.get('updUrl', '') || (repo ? `https://raw.githubusercontent.com/${repo}/main/updates.json` : '');
   if (S.settings?.updates?.url) LS.set('updUrl', S.settings.updates.url);
@@ -1663,14 +1766,7 @@ async function checkUpdate(manual) {
     r = { latest: String(j.tag_name || '').replace(/^v/, ''), exe: asset(/\.exe$/i), apk: asset(/\.apk$/i), url: j.html_url };
   }
   r.available = newerV(r.latest, APP_VERSION);
-  if (r.available && !$('#updBanner')) {
-    const link = IS_CAP ? r.apk || r.url : r.exe || r.url;
-    const el = document.createElement('div'); el.id = 'updBanner'; el.className = 'upd-banner';
-    el.innerHTML = `<span class="ico good">${ic('download')}</span><div><b>Versión ${esc(r.latest)} disponible</b><small>${IS_CAP ? 'Instálala encima: se conservan tus datos.' : 'Ejecuta el instalador y pulsa «Actualizar».'}</small></div>
-      <a class="btn primary" href="${esc(link)}" target="_blank" rel="noopener">Descargar</a><button class="btn ghost" aria-label="Cerrar">${ic('x')}</button>`;
-    el.querySelector('button').onclick = () => el.remove();
-    document.body.appendChild(el);
-  }
+  if (r.available && (manual || LS.get('skipUpdate', '') !== r.latest)) showUpdate(r);
   return r;
 }
 
@@ -1841,12 +1937,17 @@ VIEWS.ajustes = (root) => {
       try { r = r || await api('/api/remote'); } catch { return; }
       box.innerHTML = `<div class="setting" style="border:0;padding-top:16px"><div><b>Acceso remoto desde cualquier lugar</b><small>Cifrado de extremo a extremo · funciona con datos móviles · gratis</small></div><label class="switch"><input type="checkbox" id="rmOn" ${r.enabled ? 'checked' : ''}><span></span></label></div>
         ${r.enabled ? `<div class="row wrap between" style="gap:12px"><div><small class="muted">Código de vinculación</small><div class="bigcode code-show">${esc(r.code)}</div>
-          <small class="muted"><span class="dot ${r.state === 'online' ? 'on' : 'wait'}" style="display:inline-block;margin-right:6px"></span>${r.state === 'online' ? (r.clientsActive ? 'Móvil conectado ahora' : 'Listo, esperando al móvil') : 'Conectando al servicio…'}</small></div>
+          <small class="muted"><span class="dot ${r.state === 'online' ? 'on' : 'wait'}" style="display:inline-block;margin-right:6px"></span>${r.state === 'online' ? (r.clientsActive ? 'Móvil conectado ahora' : 'Listo, esperando al móvil') : `Conectando al servicio…${r.error ? ' · ' + esc(r.error) : ''}`}</small></div>
           <button class="btn" id="rmNew">${ic('refresh')}Nuevo código</button></div>` : ''}`;
       $('#rmOn').onchange = async (e) => renderRemote(await post('/api/remote', { enabled: e.target.checked }));
       if ($('#rmNew')) $('#rmNew').onclick = async () => { if (await askConfirm({ title: 'Nuevo código', text: 'El móvil tendrá que volver a vincularse con el código nuevo.', ok: 'Cambiar' })) renderRemote(await post('/api/remote', { regenerate: true })); };
     };
     renderRemote();
+    // El estado cambia en segundos: se refresca solo mientras estás en Ajustes
+    const rmTimer = setInterval(async () => {
+      if (!$('#remoteBox')) return clearInterval(rmTimer);
+      try { const r = await api('/api/remote'); if (r.enabled) { const st = $('#remoteBox small.muted:last-of-type'); renderRemote(r); } } catch {}
+    }, 3000);
     $('#pinReset').onclick = async () => {
       if (!(await askConfirm({ title: 'Cambiar PIN', text: 'Los móviles conectados tendrán que escribir el PIN nuevo.', ok: 'Cambiar' }))) return;
       const r = await post('/api/pin/reset'); $('#pinTxt').textContent = r.pin; S.settings.pin = r.pin;
@@ -1979,7 +2080,7 @@ async function scanForPc(progress) {
     } catch { return null; }
   };
   const saved = (LS.get('hubUrl', '') || '').match(/\/\/(\d+\.\d+\.\d+)\./);
-  const nets = [...new Set([saved && saved[1], '192.168.1', '192.168.0', '192.168.18', '192.168.10', '192.168.100', '10.0.0', '192.168.2', '192.168.3'].filter(Boolean))];
+  const nets = [...new Set([saved && saved[1], '192.168.1', '192.168.0', '192.168.8', '192.168.18', '192.168.10', '192.168.100', '10.0.0', '192.168.2', '192.168.3', '192.168.31', '192.168.68', '192.168.86', '192.168.178', '192.168.4', '192.168.5'].filter(Boolean))];
   const ips = nets.flatMap((n) => Array.from({ length: 254 }, (_, i) => `${n}.${i + 1}`));
   let found = null, done = 0;
   const worker = async () => { while (!found && ips.length) { const ip = ips.shift(); const r = await ping(ip); done++; if (r && !found) found = r; if (done % 40 === 0) progress?.(done, done + ips.length); } };
@@ -2087,7 +2188,7 @@ async function init() {
       if (S.route !== 'cabina') return go('cabina');
       (CapApp.minimizeApp || CapApp.exitApp).call(CapApp);
     });
-    CapApp.addListener('appStateChange', ({ isActive }) => { if (isActive && !S.connected) { S.wsFails = 0; connectHub(); } });
+    CapApp.addListener('appStateChange', ({ isActive }) => { if (isActive && !S.connected) { S.wsFails = 0; connectHub(); } if (isActive && Date.now() - (S.lastUpdCheck || 0) > 3600e3) { S.lastUpdCheck = Date.now(); checkUpdate(false).catch(() => {}); } });
   }
   on('conn', async () => {
     if (S.connected) {

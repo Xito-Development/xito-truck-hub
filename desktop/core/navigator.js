@@ -13,13 +13,23 @@ class Navigator {
     if (this.traffic.me && this.traffic.me.ServerType === 3) return 'promods';
     return 'ets2';
   }
+  // Nombres internos del juego (id de ciudad) → nombre del mapa de TruckersMP
+  static ALIAS = {
+    praha: 'prague', wien: 'vienna', koln: 'cologne', munchen: 'munich', nurnberg: 'nuremberg', geneve: 'geneva', bruxelles: 'brussels',
+    lisboa: 'lisbon', warszawa: 'warsaw', roma: 'rome', milano: 'milan', torino: 'turin', venezia: 'venice', firenze: 'florence', napoli: 'naples',
+    genova: 'genoa', sevilla: 'seville', frankfurt: 'frankfurt am main', den_haag: 'the hague', gdansk: 'gdansk', krakow: 'krakow', bucuresti: 'bucharest',
+    beograd: 'belgrade', sofiya: 'sofia', athina: 'athens', kobenhavn: 'copenhagen', goteborg: 'gothenburg', malmo: 'malmo', tallinn: 'tallinn',
+    rostock: 'rostock', luxembourg: 'luxembourg', strasbourg: 'strasbourg', a_coruna: 'a coruna', cordoba: 'cordoba', malaga: 'malaga'
+  };
   async findCity(game, name, id) {
     const learned = this.store.data.cities[String(id || '').toLowerCase()] || this.store.data.cities[String(name || '').toLowerCase()];
     if (learned && learned.x != null) return { name: learned.name, x: learned.x, y: learned.z };
     const locs = await world.locations(game);
-    const k = Traffic.key(name), kid = Traffic.key(id);
-    const c = locs.find((l) => l.t === 'city' && (Traffic.key(l.n) === k || Traffic.key(l.n) === kid))
-      || locs.find((l) => l.t === 'city' && Traffic.norm(l.n).replace(/[^a-z]/g, '') === Traffic.norm(name).replace(/[^a-z]/g, ''));
+    const flat = (v) => Traffic.norm(v).replace(/[^a-z]/g, '');
+    const cands = [name, id, Navigator.ALIAS[String(id || '').toLowerCase()], Navigator.ALIAS[flat(name)]].filter(Boolean).map(flat);
+    const cities = locs.filter((l) => l.t === 'city');
+    const c = cities.find((l) => cands.includes(flat(l.n)) || cands.includes(flat(Traffic.key(l.n))))
+      || cities.find((l) => cands.some((x) => x.length > 3 && (flat(l.n).startsWith(x) || x.startsWith(flat(l.n)))));
     return c ? { name: c.n, x: c.x, y: c.y } : null;
   }
   async compute({ game, from, to, toName } = {}) {
@@ -53,4 +63,13 @@ class Navigator {
     try { return await p; } finally { if (this.pending && this.pending.p === p) this.pending = null; }
   }
 }
+// Distancia (en unidades del mapa) del camión a la ruta, y el índice del punto más cercano
+Navigator.prototype.offRoute = function () {
+  const R = this.cache?.value, t = this.tracker.live?.truck;
+  if (!R || !t || !R.popular) return null;
+  const [x, y] = router.tf(R.game, t.x, t.z);
+  let best = Infinity;
+  for (const p of R.popular.points) { const d = Math.hypot(p[0] - x, p[1] - y); if (d < best) best = d; }
+  return best;
+};
 module.exports = Navigator;

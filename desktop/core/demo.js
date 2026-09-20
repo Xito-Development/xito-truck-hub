@@ -47,11 +47,11 @@ class Demo extends EventEmitter {
     const t = {
       t: 'tel', demo: true, game: 'Ets2', sdk: true, paused: false, gameTime: Math.round(this.gameTime), restStop: 540, mpOffset: 0,
       truck: { brand: 'Scania', name: 'S 730', plate: '4812 XTD', plateCountry: 'España', speed: this.speed, cruise: this.speed > 70,
-        cruiseSpeed: 85, rpm: 900 + (this.speed % 7.5) * 120, rpmMax: 2500, gear: this.gear, fwdGears: 12,
+        cruiseSpeed: 85, rpm: 900 + (this.speed % 7.5) * 120, rpmMax: 2500, gear: this.gear, gearSel: this.gear, shifter: 'Automatic', revGears: 2, fwdGears: 12,
         fuel: this.fuel, fuelCap: 1400, fuelAvg: 0.33, fuelRange: this.fuel / 0.33, adblue: 70, adblueCap: 90,
         odometer: this.odo, oilTemp: 88, waterTemp: 82, oilPressure: 4.2, battery: 26.5, air: 128, parking: false,
         engineBrake: false, retarder: 0, engineOn: true, electricOn: true,
-        lights: { low: true, high: false, beacon: false, left: false, right: false, hazard: false, parking: true },
+        lights: { low: true, high: false, beacon: false, left: this.tick % 300 < 40, right: false, leftOn: this.tick % 300 < 40 && this.tick % 4 < 2, rightOn: false, hazard: false, parking: true },
         warn: { fuel: false, air: false, adblue: false, oil: false, water: false, battery: false },
         damage: { engine: 0.02, transmission: 0.01, cabin: 0.03, chassis: 0.02, wheels: 0.04 }, x: px, z: pz, heading },
       trailer: { attached: true, name: 'Lona', brand: 'Krone', plate: '', damage: { body: 0.02, cargo: this.damage, chassis: 0.01, wheels: 0.02 } },
