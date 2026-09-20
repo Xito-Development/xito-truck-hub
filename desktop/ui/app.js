@@ -1659,7 +1659,9 @@ const CHANGELOG = {
     'El historial ocupa mucho menos: los recorridos de cada entrega se guardan simplificados y el listado ya no los envía',
     'El Excel de entregas incluye nota, modo, beneficio neto y matrícula',
     'Atajos Ctrl + 1…9 para cambiar de sección y «/» para buscar',
-    'El aviso del fútbol se puede cerrar'
+    'El aviso del fútbol se puede cerrar',
+    'Instalador nuevo con el aspecto de la app: instala o actualiza con un botón, con opciones y barra de progreso',
+    'Al actualizar desde el HUB, el instalador trabaja en silencio y vuelve a abrir el programa solo'
   ],
   '1.4.0': [
     'Acceso remoto desde cualquier lugar (también con datos móviles), cifrado y gratis; búsqueda automática del PC en la Wi‑Fi',

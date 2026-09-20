@@ -69,7 +69,7 @@
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
       "include": "build/installer.nsh",
-      "artifactName": "XitoTruckHub-Setup-${version}.exe",
+      "artifactName": "XitoTruckHub-Setup-base-${version}.exe",
       "language": "3082",
       "installerLanguages": [
         "es_ES"
