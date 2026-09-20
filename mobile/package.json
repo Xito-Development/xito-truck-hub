@@ -1,0 +1,22 @@
+{
+  "name": "xito-truck-hub-mobile",
+  "version": "1.4.0",
+  "private": true,
+  "scripts": {
+    "copy-ui": "node scripts/copy-ui.js",
+    "sync": "node scripts/copy-ui.js && npx cap sync android",
+    "apk": "node scripts/copy-ui.js && npx cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.0",
+    "@capacitor/core": "^7.4.0",
+    "@capacitor/app": "^7.1.2",
+    "@capacitor-community/keep-awake": "~7.1.0",
+    "@capacitor/status-bar": "^7.0.1",
+    "@capacitor/haptics": "^7.0.1",
+    "@capacitor/local-notifications": "^7.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.0"
+  }
+}

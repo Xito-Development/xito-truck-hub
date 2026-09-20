@@ -1,0 +1,81 @@
+{
+  "name": "xito-truck-hub",
+  "productName": "Xito Truck Hub",
+  "version": "1.4.0",
+  "description": "HUB para Euro Truck Simulator 2 y TruckersMP",
+  "author": "Xito Development",
+  "main": "electron/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev:web": "node dev-server.js",
+    "dist": "electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "mqtt": "^5.16.0",
+    "pngjs": "^7.0.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.xitodev.truckhub",
+    "productName": "Xito Truck Hub",
+    "copyright": "Xito Development",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "core/**",
+      "ui/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin"
+      },
+      {
+        "from": "resources/plugin",
+        "to": "plugin"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Xito Truck Hub",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
+      "artifactName": "XitoTruckHub-Setup-${version}.exe",
+      "language": "3082",
+      "installerLanguages": [
+        "es_ES"
+      ],
+      "uninstallDisplayName": "Xito Truck Hub ${version}",
+      "warningsAsErrors": false
+    }
+  }
+}

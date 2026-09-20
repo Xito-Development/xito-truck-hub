@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es" data-theme="autopista">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Xito Truck Hub</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="wbar" id="wbar" aria-label="Barra de la ventana">
+  <div class="wbar-drag"></div>
+  <div class="wbar-btns">
+    <button data-w="min" aria-label="Minimizar" title="Minimizar"><svg viewBox="0 0 12 12"><path d="M2.5 6h7"/></svg></button>
+    <button data-w="max" aria-label="Maximizar" title="Maximizar"><svg viewBox="0 0 12 12" class="i-max"><rect x="2.5" y="2.5" width="7" height="7" rx="1.6"/></svg><svg viewBox="0 0 12 12" class="i-restore"><rect x="2" y="4" width="6" height="6" rx="1.4"/><path d="M4 4V3.2A1.2 1.2 0 0 1 5.2 2H8.8A1.2 1.2 0 0 1 10 3.2V6.8A1.2 1.2 0 0 1 8.8 8H8"/></svg></button>
+    <button data-w="close" class="close" aria-label="Cerrar" title="Cerrar (sigue en la bandeja)"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+  </div>
+</header>
+<div class="app">
+  <nav class="rail" id="rail" aria-label="Secciones"></nav>
+  <main id="main"><div class="view" id="view"></div></main>
+</div>
+<nav class="mobnav" id="mobnav" aria-label="Secciones"></nav>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="mqtt.min.js"></script>
+<script src="i18n.js"></script>
+<script src="sound.js"></script>
+<script src="app.js"></script>
+<script src="map.js"></script>
+</body>
+</html>

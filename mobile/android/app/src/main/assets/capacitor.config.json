@@ -1,0 +1,19 @@
+{
+	"appId": "com.xitodev.truckhub",
+	"appName": "Xito Truck Hub",
+	"webDir": "www",
+	"server": {
+		"androidScheme": "http",
+		"cleartext": true
+	},
+	"android": {
+		"allowMixedContent": true,
+		"adjustMarginsForEdgeToEdge": "force",
+		"backgroundColor": "#0e1522"
+	},
+	"plugins": {
+		"CapacitorHttp": {
+			"enabled": true
+		}
+	}
+}

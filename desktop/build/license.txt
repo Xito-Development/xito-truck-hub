@@ -1,0 +1,13 @@
+Xito Truck Hub — Xito Development
+
+Gracias por instalar Xito Truck Hub, tu centro de mando para Euro Truck Simulator 2, American Truck Simulator y TruckersMP.
+
+Qué hace este programa:
+- Lee la telemetría del juego mediante el plugin scs-telemetry.dll (RenCloud, licencia MIT), que se copia en la carpeta bin\win_x64\plugins del juego solo cuando tú lo pides.
+- Guarda tu historial de entregas y estadísticas únicamente en este PC.
+- Consulta datos públicos de TruckersMP (api.truckersmp.com), del mapa en vivo (tracker.ets2map.com) y de tráfico (traffic.krashnz.com).
+- Abre un servidor local en el puerto 25580 para que tu móvil pueda conectarse en tu red Wi‑Fi, protegido por PIN.
+
+Xito Truck Hub no está afiliado con SCS Software, TruckersMP ni World of Trucks. Euro Truck Simulator 2 y American Truck Simulator son marcas de SCS Software.
+
+El software se proporciona "tal cual", sin garantías de ningún tipo.
