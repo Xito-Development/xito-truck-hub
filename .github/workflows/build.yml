@@ -56,26 +56,39 @@ jobs:
           name: XitoTruckHub-Android
           path: mobile/*.apk
 
-  # Publica una versión en GitHub: el HUB la detecta y avisa para actualizar
+  # Publica (o actualiza) la versión en GitHub: el HUB y la app la detectan y avisan para actualizar
   release:
     needs: [windows, android]
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - id: v
         run: echo "version=$(node -p "require('./desktop/package.json').version")" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with: { path: out, merge-multiple: true }
-      - name: Copias con nombre fijo (para updates.json)
+      - name: Preparar archivos
         run: |
-          cp out/*.exe out/XitoTruckHub-Setup.exe
-          cp out/*-${{ steps.v.outputs.version }}.apk out/XitoTruckHub.apk
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.v.outputs.version }}
-          name: Xito Truck Hub ${{ steps.v.outputs.version }}
-          body: Instala encima de la versión anterior; se conservan todos tus datos.
-          files: |
-            out/*.exe
-            out/*.apk
-          make_latest: true
+          set -e
+          V=${{ steps.v.outputs.version }}
+          ls -la out
+          cp "out/XitoTruckHub-Setup-$V.exe" out/XitoTruckHub-Setup.exe
+          cp "out/XitoTruckHub-$V.apk" out/XitoTruckHub.apk
+          node -e "const u=require('./updates.json');console.log('## Xito Truck Hub '+process.argv[1]+'\n\n'+(u.notes||[]).map(n=>'- '+n).join('\n')+'\n\nInstala encima de la versión anterior: se conservan todos tus datos.')" "$V" > notes.md
+      - name: Publicar versión
+        run: |
+          set -e
+          V=v${{ steps.v.outputs.version }}
+          FILES="out/XitoTruckHub-Setup-${{ steps.v.outputs.version }}.exe out/XitoTruckHub-Setup.exe out/XitoTruckHub-${{ steps.v.outputs.version }}.apk out/XitoTruckHub.apk"
+          if gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "La versión $V ya existía: se reemplazan sus archivos"
+            gh release upload "$V" $FILES --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$V" --notes-file notes.md --latest --draft=false --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$V" $FILES --title "Xito Truck Hub ${{ steps.v.outputs.version }}" --notes-file notes.md --latest --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY"
+          fi
+      - name: Comprobar que la versión está publicada
+        run: |
+          set -e
+          gh release view "v${{ steps.v.outputs.version }}" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,assets --jq '"Publicada: \(.tagName) · borrador: \(.isDraft) · archivos: \(.assets | length)"'

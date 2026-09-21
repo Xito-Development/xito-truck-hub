@@ -1,5 +1,5 @@
 // Xito Truck Hub — proceso principal de Electron (Windows)
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, shell, screen, nativeImage, dialog, session } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, shell, screen, nativeImage, dialog, session, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const core = require('../core');
@@ -91,10 +91,13 @@ function setEdit(on) {
 function toggleOverlay() { saveOverlay({ enabled: !S().overlay.enabled }); applyOverlay(); }
 function sendOverlay(cmd) { if (overlay) overlay.webContents.send('cmd', cmd); }
 
-function refreshTray() {
+let pendingUpdate = null;
+function refreshTray(upd) {
+  if (upd) pendingUpdate = upd;
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Abrir Xito Truck Hub', click: showMain },
+    ...(pendingUpdate ? [{ label: `Actualizar a la ${pendingUpdate.latest}`, click: () => { showMain(); setTimeout(() => hub.srv.broadcast({ t: 'update-available', d: { ...pendingUpdate, force: true } }), 800); } }] : []),
     { label: 'Jugar a TruckersMP', click: () => hub.srv.call('POST', '/api/launch', { target: 'tmp' }) },
     { type: 'separator' },
     { label: 'Mostrar overlay', type: 'checkbox', checked: !!S().overlay.enabled, click: toggleOverlay },
@@ -161,6 +164,25 @@ async function installUpdate(url, version) {
   } catch (e) { send({ phase: 'error', error: e.message }); }
 }
 
+// Al arrancar (y cada 6 h) busca una versión nueva y avisa, aunque el HUB esté en la bandeja
+async function checkForUpdates() {
+  try {
+    const u = S().updates || {};
+    if (u.check === false) return;
+    const r = await require('../core/world').checkUpdate(u.repo || 'Xito-Development/xito-truck-hub', app.getVersion(), u.url);
+    if (!r || !r.available) return;
+    hub.srv.broadcast({ t: 'update-available', d: r });
+    if (S().lastUpdateNotified === r.latest) return;
+    S().lastUpdateNotified = r.latest; hub.store.save();
+    if (Notification.isSupported()) {
+      const n = new Notification({ title: `Xito Truck Hub ${r.latest} disponible`, body: 'Pulsa para verla e instalarla. Se conservan todos tus datos.', icon });
+      n.on('click', () => { showMain(); setTimeout(() => hub.srv.broadcast({ t: 'update-available', d: { ...r, force: true } }), 800); });
+      n.show();
+    }
+    refreshTray(r);
+  } catch (e) { console.warn('[actualizaciones]', e.message); }
+}
+
 app.on('second-instance', showMain);
 app.whenReady().then(() => {
   // El mapa oficial de TruckersMP no deja incrustarse: dentro de nuestra app se permite
@@ -210,6 +232,8 @@ app.whenReady().then(() => {
   tray.on('click', showMain);
   refreshTray();
   setTimeout(() => { createWindow(); createOverlay(); }, 400);
+  setTimeout(checkForUpdates, 8000);
+  setInterval(checkForUpdates, 6 * 3600e3);
   for (const [acc, fn] of Object.entries(SHORTCUTS)) { try { globalShortcut.register(acc, fn); } catch {} }
   // F5: cambia el zoom del mini mapa del overlay y deja pasar la tecla al juego (que la usa para su navegador)
   f5Handler = () => {

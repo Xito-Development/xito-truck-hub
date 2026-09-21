@@ -287,6 +287,7 @@ function onHubMsg(msg) {
   if (msg.t === 'convoy') { S.convoy = msg.d; emit('convoy'); }
   if (msg.t === 'laliga') { S.laliga = msg.d; renderLaliga(); }
   if (msg.t === 'update') emit('update', msg.d);
+  if (msg.t === 'update-available' && msg.d && (msg.d.force || LS.get('skipUpdate', '') !== msg.d.latest)) showUpdate(msg.d);
   if (msg.t === 'hello' && msg.laliga) { S.laliga = msg.laliga; renderLaliga(); }
   if (msg.t === 'hello') { if (msg.convoy) { S.convoy = msg.convoy; emit('convoy'); } if (msg.tacho) S.tacho = msg.tacho; }
   if (msg.t === 'hello' && msg.game) { S.game = msg.game; emit('game'); }
@@ -1647,8 +1648,13 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.4.2';
 const CHANGELOG = {
+  '1.4.2': [
+    'Al arrancar busca actualizaciones y avisa con una notificación de Windows, aunque el HUB esté en la bandeja',
+    'La bandeja muestra «Actualizar a la versión X» cuando hay una nueva',
+    'Publicación de versiones en GitHub más fiable: si falla, se ve el error'
+  ],
   '1.4.1': [
     'El mini mapa del overlay muestra los nombres de las ciudades, las empresas y los puntos de interés',
     'Buscador de ciudades y empresas en el mapa, y datos al pasar el ratón por gasolineras, talleres o garajes',

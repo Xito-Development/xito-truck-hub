@@ -1,10 +1,10 @@
 {
-  "latest": "1.4.1",
+  "latest": "1.4.2",
   "mandatory": false,
   "notes": [
-    "Nombres de ciudades y puntos de interés en el mini mapa",
-    "Buscador en el mapa y mejoras de rendimiento",
-    "Licencia MIT y avisos de terceros"
+    "Nuevo instalador con el aspecto de la app",
+    "Aviso automático de actualizaciones al arrancar, también desde la bandeja",
+    "Publicación de versiones más fiable"
   ],
   "exe": "https://github.com/Xito-Development/xito-truck-hub/releases/latest/download/XitoTruckHub-Setup.exe",
   "apk": "https://github.com/Xito-Development/xito-truck-hub/releases/latest/download/XitoTruckHub.apk",
