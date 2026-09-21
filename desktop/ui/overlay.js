@@ -10,7 +10,7 @@ const DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const clock = (m) => `${DAYS[Math.floor(m / 1440) % 7]} ${String(Math.floor((m % 1440) / 60)).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
 function dur(s) { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h} h ${m} min` : `${m} min`; }
 
-let fin = null, tacho = null, convoy = null, cur = null, live = null, status = null, settings = null, traffic = null, route = null, ses = null, gameSt = null, passed = new Set(), editing = false;
+let routeErr = null, tmpTime = null, near = [], nearT = 0, latch = {}, fin = null, tacho = null, convoy = null, cur = null, live = null, status = null, settings = null, traffic = null, route = null, ses = null, gameSt = null, passed = new Set(), editing = false;
 const O = () => settings?.overlay || {};
 const mph = () => settings?.units?.speed === 'mph';
 const spd = (k) => (mph() ? k * 0.621371 : k);
@@ -122,7 +122,7 @@ function update() {
   hud.classList.toggle('off', !editing && (!on || paused));
   const pill = $('#pausePill');
   pill.classList.toggle('hidden', !(paused && O().pauseMini !== false) || editing);
-  if (paused) $('#pauseInfo').textContent = live.job?.onJob ? `${live.job.toCity} · ${dist((live.nav?.distance || 0) / 1000)}` : clock(live.gameTime);
+  if (paused) $('#pauseInfo').textContent = live.job?.onJob ? `${live.job.toCity} · ${dist((live.nav?.distance || 0) / 1000)}` : clock(tmpTime ?? live.gameTime);
   if (!on) return;
   const t = live.truck, n = live.nav, j = live.job;
   const lim = Math.round(n.limit || 0);
@@ -137,7 +137,12 @@ function update() {
   const rp = $('#rpm'); if (rp) rp.style.width = Math.min(100, (t.rpm / (t.rpmMax || 2500)) * 100) + '%';
   // testigos
   const L = t.lights || {}, w = t.warn || {};
-  const st = { left: L.left, right: L.right, low: L.low, high: L.high, beacon: L.beacon, hazard: L.hazard, park: t.parking, engine: t.engineBrake || t.retarder > 0, cruise: t.cruise, battery: w.battery, oil: w.oil, air: w.air, fuel: w.fuel };
+  // El juego a veces informa del intermitente/emergencia encendiéndose y apagándose: se mantiene
+  // «activo» 1,2 s tras el último aviso y el parpadeo lo hace el overlay a ritmo constante
+  const nowMs = Date.now();
+  const hold = (k, v) => { if (v) latch[k] = nowMs; return nowMs - (latch[k] || 0) < 1200; };
+  const hz = hold('hazard', L.hazard || (L.leftOn && L.rightOn));
+  const st = { left: hold('left', L.left || L.leftOn) && !hz, right: hold('right', L.right || L.rightOn) && !hz, low: L.low, high: L.high, beacon: L.beacon, hazard: hz, park: t.parking, engine: t.engineBrake || t.retarder > 0, cruise: t.cruise, battery: w.battery, oil: w.oil, air: w.air, fuel: w.fuel };
   for (const [id] of LAMPS) { const el = $('#L-' + id); if (el) el.classList.toggle('on', !!st[id]); }
   // navegación
   let via = null;
@@ -149,8 +154,8 @@ function update() {
   if (nd) nd.textContent = j && j.onJob ? `${j.toCity}` : 'Conducción libre';
   if (ns) ns.textContent = j && j.onJob ? `${j.toCompany} · ${j.cargo}` : '';
   if (ndi) ndi.textContent = j && j.onJob ? dist(n.distance / 1000) : '';
-  const nv = $('#navVia'); if (nv) nv.innerHTML = via ? `Por <span class="via">${esc(via.name)}</span> · ${dist(Math.hypot(via.x - t.x, via.y - t.z) / 1000)}` : j && j.onJob && n.time > 0 ? `≈ ${dur(n.time)}` : '';
-  const nc = $('#navClock'); if (nc) nc.textContent = clock(live.gameTime);
+  const nv = $('#navVia'); if (nv && j && j.onJob && !route) { nv.textContent = routeErr ? 'Sin ruta recomendada' : 'Calculando ruta…'; } else if (nv) nv.innerHTML = via ? `Por <span class="via">${esc(via.name)}</span> · ${dist(Math.hypot(via.x - t.x, via.y - t.z) / 1000)}` : j && j.onJob && n.time > 0 ? `≈ ${dur(n.time)}` : '';
+  const nc = $('#navClock'); if (nc) { const now = new Date(); nc.textContent = `${clock(tmpTime ?? live.gameTime)} · ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`; nc.title = 'Hora del juego (o del servidor de TruckersMP) · hora real'; }
   const tl = { low: ['Fluido', '#4fd1a1'], moderate: ['Moderado', '#ffb547'], heavy: ['Denso', '#ffc94d'], congested: ['Congestionado', '#ff5a64'] }[traffic?.level];
   const nt = $('#navTraf'); if (nt) nt.innerHTML = tl ? `<span class="tchip" style="background:${tl[1]}22;color:${tl[1]}">${tl[0]}</span>` : '';
   // finanzas
@@ -223,7 +228,8 @@ function tile(url) {
   if (imgs.size > 200) imgs.delete(imgs.keys().next().value);
   return e;
 }
-let mmZoom = 1.4, locsAll = [], nearPois = [], nearCities = [], nearAt = 0, locsGame = '';
+const MM_ZOOMS = [0.03, 0.07, 0.15, 0.32]; // Región, Carretera, Cerca, Detalle
+let mmZoom = 0.15, locsAll = [], nearPois = [], nearCities = [], nearAt = 0, locsGame = '';
 function loadLocs(game) {
   if (locsGame === game) return;
   locsGame = game;
@@ -239,10 +245,10 @@ function refreshNear(cx, cy, range) {
     const dx = l.x - cx, dy = l.y - cy;
     if (dx * dx + dy * dy > r2) continue;
     if (l.t === 'city') nearCities.push(l);
-    else if (['fuel', 'rest', 'service', 'garage', 'company'].includes(l.t)) nearPois.push(l);
+    else if (['fuel', 'rest', 'service', 'garage', 'company', 'dealer', 'recruit', 'port', 'toll'].includes(l.t)) nearPois.push(l);
   }
   nearCities.sort((a, b) => (a.x - cx) ** 2 + (a.y - cy) ** 2 - ((b.x - cx) ** 2 + (b.y - cy) ** 2));
-  nearCities = nearCities.slice(0, 14);
+  nearCities = nearCities.slice(0, 40);
 }
 function drawMinimap() {
   const cv = $('#mm'); if (!cv || !live || !live.truck) return;
@@ -254,7 +260,7 @@ function drawMinimap() {
   const tf = (x, y) => (game === 'ets2' && y < -0.14 * x - 10040 && x < -30100 ? [0.75 * x - 8337, 0.75 * y - 1000] : [x, y]);
   const t = live.truck;
   const [cx, cy] = tf(t.x, t.z);
-  const ppu = 0.035 * mmZoom * (O().mapZoom || 1);
+  const ppu = mmZoom * (O().mapZoom || 1);
   const h = (t.heading || 0) * Math.PI * 2;
   const rot = O().mapRotate !== false ? -Math.PI / 2 - Math.atan2(-Math.cos(h), -Math.sin(h)) : 0;
   ctx.save();
@@ -274,24 +280,43 @@ function drawMinimap() {
   const acc = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#ffb547';
   // Puntos de interés cercanos: gasolineras, descanso, talleres, garajes y empresas
   loadLocs(game);
-  refreshNear(cx, cy, Math.hypot(W, H) / ppu);
+  refreshNear(cx, cy, Math.max(Math.hypot(W, H) / ppu, 3000));
   if (ppu > 0.02) {
-    const COL = { fuel: '#ffb547', rest: '#6fb6ff', service: '#ff7a59', garage: '#b07cff', company: '#4fd1a1' };
-    const s2 = ppu > 0.08 ? 6 : 4;
+    const COL = { fuel: '#ffb547', rest: '#6fb6ff', service: '#ff7a59', garage: '#b07cff', company: '#4fd1a1', dealer: '#e5e55b', recruit: '#e5e55b', port: '#43e0ff', toll: '#e5e55b' };
+    const GLY = { fuel: 'G', rest: 'P', service: 'T', garage: 'H', company: 'E', dealer: 'C', recruit: 'A', port: 'F', toll: '€' };
+    const s2 = ppu > 0.12 ? 13 : ppu > 0.05 ? 9 : 5;
+    ctx.textAlign = 'center'; ctx.font = `700 ${Math.round(s2 * 0.68)}px Barlow, sans-serif`;
     for (const p of nearPois) {
-      if (p.t === 'company' && ppu < 0.08) continue;
-      const [px, py] = tf(p.x, p.y);
-      const [sx, sy] = toS(px, py);
-      ctx.fillStyle = COL[p.t]; ctx.fillRect(sx - s2 / 2, sy - s2 / 2, s2, s2);
+      if (p.t === 'company' && ppu < 0.06) continue;
+      const [sx, sy] = toS(...tf(p.x, p.y));
+      ctx.save(); ctx.translate(sx, sy); ctx.rotate(-rot);
+      ctx.fillStyle = COL[p.t] || '#ccc';
+      ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(-s2 / 2, -s2 / 2, s2, s2, s2 / 3.5); else ctx.rect(-s2 / 2, -s2 / 2, s2, s2); ctx.fill();
+      if (s2 >= 9) { ctx.fillStyle = '#0b1220'; ctx.fillText(GLY[p.t] || '', 0, s2 * 0.24); }
+      ctx.restore();
     }
   }
-  let pts = route?.popular?.points;
+  const rsel = O().routeMode === 'popular' ? (route?.popular || route?.fastest) : (route?.fastest || route?.popular);
+  let pts = rsel?.points;
   if (pts && pts.length > 1) {
     let from = 0, bd = Infinity; pts.forEach((p, i) => { const d = Math.hypot(p[0] - cx, p[1] - cy); if (d < bd) { bd = d; from = i; } });
     pts = pts.slice(Math.max(0, from - 1));
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 7; ctx.beginPath(); pts.forEach((p, i) => { const [x, y] = toS(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
     ctx.strokeStyle = acc; ctx.lineWidth = 4; ctx.stroke();
+  }
+  // Jugadores de TruckersMP alrededor
+  if (performance.now() - nearT > 3000) {
+    nearT = performance.now();
+    const R = Math.max((O().playerRange ?? 1.5) * 1000, Math.min(20000, (Math.hypot(W, H) / ppu) * 0.7));
+    fetch(`/api/map/area?x1=${t.x - R}&y1=${t.z - R}&x2=${t.x + R}&y2=${t.z + R}&server=auto`).then((r) => r.json()).then((r) => { const maxD = (O().playerRange ?? 1.5) * 1000;
+      near = (r.players || []).filter((p) => { const d = Math.hypot(p[0] - t.x, p[1] - t.z); return d > 25 && d <= maxD; }); }).catch(() => {});
+  }
+  ctx.fillStyle = '#43e0ff'; ctx.strokeStyle = '#0c121c'; ctx.lineWidth = 1.5;
+  for (const p of near) {
+    const [px, py] = toS(...tf(p[0], p[1]));
+    if (Math.abs(px) > W || Math.abs(py) > H) continue;
+    ctx.beginPath(); ctx.arc(px, py, ppu > 0.06 ? 4.5 : 3, 0, 7); ctx.fill(); ctx.stroke();
   }
   if (convoy && convoy.active) for (const m of convoy.members || []) {
     if (m.x == null || m.off) continue;
@@ -304,16 +329,28 @@ function drawMinimap() {
     const [mx, my] = toS(...tf(x, y));
     return [W / 2 + mx * Math.cos(rot) - my * Math.sin(rot), H * 0.62 + mx * Math.sin(rot) + my * Math.cos(rot)];
   };
+  // Tamaño y opacidad según lo lejos que esté la ciudad: las cercanas grandes, las lejanas más pequeñas.
+  // Si un nombre se pisaría con otro ya puesto, se omite (se dibujan primero las más cercanas).
   ctx.textAlign = 'center'; ctx.lineJoin = 'round';
+  const placed = [];
+  const free = (x, y, w, h) => { for (const b of placed) if (x < b[0] + b[2] && x + w > b[0] && y < b[1] + b[3] && y + h > b[1]) return false; placed.push([x, y, w, h]); return true; };
+  const [tx0, ty0] = [W / 2, H * 0.62];
+  const maxR = Math.hypot(W, H) * 0.75;
   for (const c of nearCities) {
     const [sx, sy] = proj(c.x, c.y);
-    if (sx < -30 || sy < -12 || sx > W + 30 || sy > H + 12) continue;
-    ctx.font = '700 11px Barlow, sans-serif';
+    if (sx < -40 || sy < -14 || sx > W + 40 || sy > H + 14) continue;
+    const k = Math.min(1, Math.hypot(sx - tx0, sy - ty0) / maxR); // 0 = junto al camión, 1 = en el borde
+    const size = Math.round(14 - k * 5);
+    ctx.font = `700 ${size}px Barlow, sans-serif`;
+    const w = ctx.measureText(c.n).width + 6;
+    if (!free(sx - w / 2, sy - size - 6, w, size + 4)) continue;
+    ctx.globalAlpha = 1 - k * 0.45;
     ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,12,20,.9)'; ctx.strokeText(c.n, sx, sy - 6);
     ctx.fillStyle = '#eef2f8'; ctx.fillText(c.n, sx, sy - 6);
-    ctx.fillStyle = 'rgba(238,242,248,.75)'; ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(238,242,248,.8)'; ctx.beginPath(); ctx.arc(sx, sy, 2 + (1 - k) * 1.2, 0, 7); ctx.fill();
+    ctx.globalAlpha = 1;
   }
-  if (ppu > 0.1) {
+  if (ppu > 0.12) {
     ctx.font = '600 10px Barlow, sans-serif';
     for (const p of nearPois) {
       if (p.t !== 'company' || !p.n) continue;
@@ -389,8 +426,8 @@ function onCmd(c) {
   else if (c === 'clear-messages') { msgs = []; renderMsgs(); }
   else if (c === 'cycle-style') { const order = ['hud', 'card', 'minimal']; post({ overlay: { style: order[(order.indexOf(O().style || 'hud') + 1) % 3] } }); }
   else if (c === 'zoom-map') {
-    const Z = [0.35, 0.7, 1.4, 2.8];
-    const i = Z.findIndex((z) => Math.abs(z - mmZoom) < 0.01);
+    const Z = MM_ZOOMS;
+    const i = Z.findIndex((z) => Math.abs(z - mmZoom) < 0.0001);
     mmZoom = Z[(i + 1) % Z.length];
     const nv = $('#mm')?.closest('.minimap');
     if (nv) { nv.dataset.zoom = ['Región', 'Carretera', 'Cerca', 'Detalle'][(i + 1) % Z.length]; nv.classList.remove('zflash'); void nv.offsetWidth; nv.classList.add('zflash'); }
@@ -416,9 +453,9 @@ function connect() {
     if (msg.t === 'hello') {
       laligaPill(msg.laliga);
       traffic = msg.traffic; live = msg.live; status = msg.status; gameSt = msg.game; convoy = msg.convoy; tacho = msg.tacho; applySettings(msg.settings);
-      if (msg.live?.job?.onJob) fetch('/api/route').then((r) => r.json()).then((r) => { if (r && r.popular) route = r; }).catch(() => {});
+      fetch('/api/route/current').then((r) => r.json()).then((r) => { if (r && r.route) route = r.route; }).catch(() => {});
       update();
-    } else if (msg.t === 'tel') { live = msg.d; if (msg.ses) ses = msg.ses; if (msg.tacho) tacho = msg.tacho; cur = msg.cur; update(); }
+    } else if (msg.t === 'tel') { live = msg.d; if (msg.ses) ses = msg.ses; if (msg.tacho) tacho = msg.tacho; cur = msg.cur; tmpTime = msg.tmpTime ?? null; update(); }
     else if (msg.t === 'convoy') { convoy = msg.d; renderConvoy(); }
     else if (msg.t === 'laliga') laligaPill(msg.d);
     else if (msg.t === 'status') { status = msg.d; update(); }
@@ -426,7 +463,8 @@ function connect() {
     else if (msg.t === 'ev') onEv(msg.d);
     else if (msg.t === 'traffic') { traffic = msg.d; }
     else if (msg.t === 'alert') onAlert(msg.d);
-    else if (msg.t === 'route') route = msg.d;
+    else if (msg.t === 'route') { route = msg.d; routeErr = null; }
+    else if (msg.t === 'route-error') { route = null; routeErr = msg.d.error; }
     else if (msg.t === 'game') gameSt = msg.d;
     else if (msg.t === 'job') {
       if (msg.d.phase !== 'started') { route = null; passed = new Set(); setTimeout(loadFinance, 1500); }

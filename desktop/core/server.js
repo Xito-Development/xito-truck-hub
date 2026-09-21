@@ -97,6 +97,7 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
     'GET /api/laliga': async (q) => { if (q.get('refresh')) await laliga.check().catch(() => {}); return laliga.state; },
     'GET /api/displays': () => hooks.displays?.() || [],
     'POST /api/displays': async (_q, b) => { hooks.setDisplay?.(+b.id); return hooks.displays?.() || []; },
+    'POST /api/log/client': async (_q, b) => { require('./log').write('UI', String(b.msg || '').slice(0, 1500)); return { ok: true }; },
     'GET /api/log': () => ({ lines: require('./log').tail(400), file: require('./log').file }),
     'POST /api/open-data': async () => { await hooks.openPath?.(require('path').dirname(require('./log').file)); return { ok: true }; },
     'GET /api/vtc/online': () => tmpWatch.vtcOnline,
@@ -201,6 +202,17 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
       return { server: +server, players: await world.area({ x1: +q.get('x1'), y1: +q.get('y1'), x2: +q.get('x2'), y2: +q.get('y2'), server }) };
     },
     'GET /api/map/heat': (q) => { world.touchHeat(); return { cells: world.heatList(q.get('game') || 'ets2', +q.get('min') || 0.3), hot: traffic.nearby?.server?.top || [] }; },
+    'POST /api/route/manual': async (_q, b) => {
+      const to = [+b.toX, +b.toY];
+      if (!isFinite(to[0]) || !isFinite(to[1])) throw new Error('Destino no válido');
+      const from = b.fromX != null && b.fromX !== '' ? [+b.fromX, +b.fromY] : null;
+      nav.manual = { to, toName: String(b.toName || 'Destino').slice(0, 60), game: b.game || undefined };
+      const r = await nav.compute({ game: b.game || undefined, from, to, toName: nav.manual.toName });
+      broadcast({ t: 'route', d: { ...r, manual: true } });
+      return r;
+    },
+    'POST /api/route/clear': () => { nav.manual = null; nav.cache = null; broadcast({ t: 'route', d: null }); return { ok: true }; },
+    'GET /api/route/current': () => ({ route: nav.cache?.value || null, manual: nav.manual || null }),
     'GET /api/route': async (q) => {
       const num = (k) => (q.get(k) != null && q.get(k) !== '' ? +q.get(k) : null);
       const fx = num('fromX'), fy = num('fromY'), tx = num('toX'), ty = num('toY');
@@ -339,7 +351,7 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
   tracker.on('telemetry', (t) => {
     const now = Date.now(); if (now - lastTel < 190) return; lastTel = now;
     const c = tracker.cur;
-    broadcast({ t: 'tel', d: t, cur: c ? { id: c.id, drivenKm: c.drivenKm, fines: c.fines.length, startedAt: c.startedAt, startDistance: c.startDistance, score: tracker.liveScore() } : null, ses: tracker.session, tacho: tacho.state() });
+    broadcast({ t: 'tel', d: t, cur: c ? { id: c.id, drivenKm: c.drivenKm, fines: c.fines.length, startedAt: c.startedAt, startDistance: c.startDistance, score: tracker.liveScore() } : null, ses: tracker.session, tacho: tacho.state(), tmpTime: tracker.tmpTime ? tracker.tmpTime() : null });
   });
   tracker.on('ev', (e) => broadcast({ t: 'ev', d: e }));
   tracker.on('job', (j) => broadcast({ t: 'job', d: j }));

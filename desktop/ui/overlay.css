@@ -34,8 +34,8 @@ html, body.ov-body { background: transparent !important; overflow: hidden; heigh
 .lampi { width: 30px; height: 26px; border-radius: 7px; display: grid; place-items: center; color: rgba(255, 255, 255, .22); transition: color .2s, background-color .2s; }
 .lampi svg { width: 18px; height: 18px; }
 .lampi.on { color: #7cf29b; } .lampi.on.b { color: #6fb6ff; } .lampi.on.a { color: #ffc94d; } .lampi.on.r { color: #ff5a64; background: rgba(255, 90, 100, .12); }
-.lampi.blink.on { animation: ovBlink .8s steps(2) infinite; }
-@keyframes ovBlink { 50% { opacity: .15; } }
+.lampi.blink.on { animation: ovBlink 1s steps(1, end) infinite; }
+@keyframes ovBlink { 0% { opacity: 1; } 50% { opacity: .18; } }
 
 /* navegación */
 .w-nav { width: 300px; padding: 10px; }

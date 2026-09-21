@@ -1,7 +1,7 @@
 {
   "name": "xito-truck-hub",
   "productName": "Xito Truck Hub",
-  "version": "1.4.7",
+  "version": "1.5.1",
   "description": "HUB para Euro Truck Simulator 2 y TruckersMP",
   "author": "Xito Development",
   "main": "electron/main.js",

@@ -279,7 +279,7 @@ function onHubMsg(msg) {
     S.status = msg.status || S.status; S.live = msg.live; S.settings = msg.settings; S.cur = msg.current; S.traffic = msg.traffic;
     applyTheme(); emit('status'); emit('tel'); emit('traffic');
   } else if (msg.t === 'tel') {
-    S.live = msg.d; S.curLive = msg.cur; if (msg.ses) S.ses = msg.ses; if (msg.tacho) S.tacho = msg.tacho; emit('tel');
+    S.live = msg.d; S.curLive = msg.cur; S.tmpTime = msg.tmpTime ?? null; if (msg.ses) S.ses = msg.ses; if (msg.tacho) S.tacho = msg.tacho; emit('tel');
   } else if (msg.t === 'status') {
     S.status = msg.d; emit('status');
   } else if (msg.t === 'ev') {
@@ -307,6 +307,8 @@ function onHubMsg(msg) {
   if (msg.t === 'convoy') { S.convoy = msg.d; emit('convoy'); }
   if (msg.t === 'laliga') { S.laliga = msg.d; renderLaliga(); }
   if (msg.t === 'update') emit('update', msg.d);
+  if (msg.t === 'route-error') { S.routeError = msg.d.error; S.navRoute = null; emit('route'); }
+  if (msg.t === 'route') S.routeError = null;
   if (msg.t === 'update-available' && msg.d && (msg.d.force || LS.get('skipUpdate', '') !== msg.d.latest)) showUpdate(msg.d);
   if (msg.t === 'hello' && msg.laliga) { S.laliga = msg.laliga; renderLaliga(); }
   if (msg.t === 'hello') { if (msg.convoy) { S.convoy = msg.convoy; emit('convoy'); } if (msg.tacho) S.tacho = msg.tacho; }
@@ -699,7 +701,7 @@ VIEWS.cabina = (root) => {
     const t = d.truck, j = d.job, n = d.nav;
     $('#truckName').textContent = [t.brand, t.name].filter(Boolean).join(' ') || 'Cabina';
     $('#truckSub').textContent = [t.plate, d.trailer?.attached ? `Remolque ${d.trailer.name || ''}`.trim() : 'Sin remolque', d.paused ? 'Pausa' : ''].filter(Boolean).join(' · ');
-    $('#clock').textContent = gameClock(d.gameTime);
+    $('#clock').textContent = gameClock(S.tmpTime ?? d.gameTime);
     $('#rest').textContent = d.restStop > 0 ? `Descanso en ${dur(d.restStop * 60)}` : 'Descanso: ya';
     $('#rest').className = 'pill' + (d.restStop > 0 && d.restStop <= 60 ? ' warn' : '');
     const lim = Math.round(n.limit || 0);
@@ -744,6 +746,7 @@ VIEWS.cabina = (root) => {
       if (rh) {
         const via = (S.navRoute?.popular?.via || []).map((v) => v.name);
         rh.classList.toggle('hidden', !S.navRoute);
+        if (!S.navRoute && S.routeError && S.live?.job?.onJob) { rh.classList.remove('hidden'); rh.innerHTML = `${ic('trafico')}<span><b>Sin ruta recomendada</b>${esc(S.routeError)}</span>${ic('mapa')}`; }
         if (S.navRoute) rh.innerHTML = `${ic('trafico')}<span><b>Ruta más concurrida</b>${nv ? `Siguiente: ${esc(nv.name)} · ${U.dist(nv.km, 0)} en línea recta` : via.length ? esc(via.join(' → ')) : 'Sigue tu GPS'}</span>${ic('mapa')}`;
       }
       $('#jFines').textContent = S.curLive?.fines ? `${S.curLive.fines} multa${S.curLive.fines > 1 ? 's' : ''}` : '';
@@ -758,7 +761,8 @@ VIEWS.cabina = (root) => {
     const trl = tdm ? Math.max(tdm.body, tdm.chassis, tdm.wheels) : 0;
     setM('dTrl', trl, 1, tdm ? pct(trl) : '—');
     const L = t.lights;
-    const st = { lLeft: L.left || L.hazard, lLow: L.low, lHigh: L.high, lBeacon: L.beacon, lPark: t.parking, lEng: t.engineBrake || t.retarder > 0, lCruise: t.cruise, lRight: L.right || L.hazard };
+    const hz = lampHold('hz', L.hazard || (L.leftOn && L.rightOn));
+    const st = { lLeft: lampHold('l', L.left || L.leftOn) || hz, lLow: L.low, lHigh: L.high, lBeacon: L.beacon, lPark: t.parking, lEng: t.engineBrake || t.retarder > 0, lCruise: t.cruise, lRight: lampHold('r', L.right || L.rightOn) || hz };
     for (const [id, , title, cls] of LAMPS) {
       const el = $('#' + id); const onv = !!st[id];
       el.className = 'lamp' + (onv ? ' on ' + cls : '');
@@ -806,6 +810,9 @@ function nextVia() {
   return { name: v.name, km: Math.hypot(v.x - t.x, v.y - t.z) / 1000, left: rest.length };
 }
 const gearTxt = (g) => (g > 0 ? String(g) : g < 0 ? 'R' + Math.abs(g) : 'N');
+// Intermitentes y emergencia: se mantienen activos un momento para que el parpadeo sea regular
+const lampLatch = {};
+function lampHold(k, v) { const n = Date.now(); if (v) lampLatch[k] = n; return n - (lampLatch[k] || 0) < 1200; }
 // Marcha como la muestra el salpicadero del juego: A12 (automática), 8 (manual), R1, N
 function gearLabel(t) {
   let g = t.gear;
@@ -835,7 +842,7 @@ async function openDash() {
   const upd = () => {
     const d = S.live; if (!d || !d.sdk) return;
     const t = d.truck, n = d.nav, j = d.job, lim = Math.round(n.limit || 0);
-    $('#dClock').textContent = gameClock(d.gameTime);
+    $('#dClock').textContent = gameClock(S.tmpTime ?? d.gameTime);
     const tf = S.traffic, TL = tf ? (TRAF[tf.level] || TRAF.low) : null; $('#dTraf').textContent = TL ? `Tráfico ${TL[0].toLowerCase()}` : ''; $('#dTraf').className = 'pill ' + (TL ? TL[1] : 'hidden');
     $('#dLim').textContent = lim > 0 ? lim : '–'; $('#dLim').classList.toggle('none', lim <= 0);
     $('#dSpeedBox').classList.toggle('over', lim > 0 && t.speed > lim + 3);
@@ -1618,6 +1625,25 @@ function prefsHtml() {
     <small class="muted">Pon 0 para ocultar un objetivo.</small>
   </section>` : ''}`;
 }
+// Reparte las tarjetas en dos columnas equilibradas (cada tarjeta va a la columna más corta)
+function balanceCols(box) {
+  if (!box) return;
+  const cards = [...box.querySelectorAll(':scope > .card, :scope > .mcol > .card')];
+  box.innerHTML = '';
+  const two = box.clientWidth > 900;
+  box.classList.toggle('two', two);
+  const cols = two ? [document.createElement('div'), document.createElement('div')] : [document.createElement('div')];
+  cols.forEach((c) => { c.className = 'mcol'; box.appendChild(c); });
+  for (const card of cards) {
+    const target = cols.reduce((a, b) => (a.offsetHeight <= b.offsetHeight ? a : b));
+    target.appendChild(card);
+  }
+  if (!box._ro) {
+    let w = box.clientWidth;
+    box._ro = new ResizeObserver(() => { if (Math.abs(box.clientWidth - w) > 40 && (box.clientWidth > 900) !== box.classList.contains('two')) { w = box.clientWidth; balanceCols(box); } });
+    box._ro.observe(box);
+  }
+}
 function bindPrefs(root) {
   const seg = (id, fn) => { const el = $('#' + id); if (!el) return; el.onclick = (e) => { const c = e.target.closest('[data-v]'); if (!c) return; $$('#' + id + ' .chip').forEach((x) => x.setAttribute('aria-pressed', x === c)); fn(c.dataset.v); }; };
   const tog = (id, fn) => { const el = $('#' + id); if (el) el.onchange = (e) => fn(e.target.checked); };
@@ -1669,8 +1695,34 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.4.7';
+const APP_VERSION = '1.5.1';
 const CHANGELOG = {
+  '1.5.1': [
+    'Mini mapa: nombres de ciudades en todos los zooms, más grandes cuanto más cerca están y sin pisarse entre sí'
+  ],
+  '1.5.0': [
+    'Mini mapa más cerca y detallado: se ven las carreteras con su anchura, y F5 cambia entre 4 zooms',
+    'La ruta del mini mapa sigue la del GPS del juego (o la más concurrida, a elegir)',
+    'Rutas a mano: en el mapa del HUB o del móvil elige un destino con «Ir aquí» y aparece en el mini mapa; se quita sola al llegar',
+    'Jugadores cercanos en el mini mapa hasta la distancia que elijas',
+    'Gasolineras, descanso, talleres, garajes, empresas, peajes y puertos con su icono en el mini mapa'
+  ],
+  '1.4.9': [
+    'Detecta TruckersMP aunque no hayas puesto tu ID, para usar siempre la hora del servidor',
+    'En Convoy (multijugador oficial del juego) también se usa la hora compartida',
+    'Si no se puede calcular la ruta, el overlay y la cabina lo dicen en vez de quedarse en «Calculando…»',
+    'El reloj del overlay muestra también la hora real',
+    'La ventana del HUB recuerda su tamaño y posición',
+    'El icono de la bandeja muestra hacia dónde vas y cuánto te queda',
+    'Los errores de la interfaz se guardan en el registro para poder arreglarlos'
+  ],
+  '1.4.8': [
+    'Mini mapa del overlay: se ven los jugadores de TruckersMP que tienes alrededor',
+    'La ruta encuentra mejor el destino aunque el juego esté en español (Múnich, Colonia, Viena, Burdeos…)',
+    'El reloj del overlay y de la cabina usa la hora del servidor de TruckersMP cuando juegas en TMP',
+    'Intermitentes y luces de emergencia con un parpadeo regular',
+    'Ajustes: las tarjetas se reparten en dos columnas equilibradas, sin huecos al final'
+  ],
   '1.4.7': [
     'Mapa: los jugadores ya no saltan hacia atrás y hacia delante; se mueven suave y solo con su posición más reciente',
     'Mapa: sin huecos mientras cargan las zonas y con más nitidez',
@@ -1909,6 +1961,8 @@ VIEWS.ajustes = (root) => {
         <div class="chips" id="ovWidgets" style="margin:4px 0 8px">${[['speed', 'Velocímetro'], ['lamps', 'Testigos'], ['nav', 'Navegación y mini mapa'], ['messages', 'Mensajes'], ['finance', 'Finanzas'], ['damage', 'Daños'], ['job', 'Trabajo'], ['tacho', 'Tacógrafo'], ['convoy', 'Convoy'], ['fuel', 'Combustible']]
           .map(([k, l]) => `<button class="chip" data-wg="${k}" aria-pressed="${ov.widgets?.[k]?.on !== false && !(k === 'damage' && !ov.widgets?.[k]?.on)}">${l}</button>`).join('')}</div>
         ${sw('ovRotate', ov.mapRotate !== false, 'Mini mapa girando con el camión')}
+        <div class="setting"><div><b>Ruta en el mini mapa</b><small>La del GPS del juego suele coincidir con la más corta</small></div>${segs('ovRoute', ov.routeMode || 'gps', [['gps', 'Como el GPS'], ['popular', 'Más concurrida']])}</div>
+        <div class="setting"><div><b>Jugadores en el mini mapa</b><small>Hasta qué distancia se muestran</small></div>${segs('ovRange', String(ov.playerRange ?? 1.5), [['0.5', '500 m'], ['1', '1 km'], ['1.5', '1,5 km'], ['3', '3 km'], ['6', '6 km']])}</div>
         ${IS_CAP ? '' : sw('ovF5', ov.f5Zoom !== false, 'F5 cambia el zoom del mini mapa', 'La tecla sigue llegando al juego')}
         ${IS_CAP ? '' : `<div class="setting"><div><b>Pantalla del overlay</b><small>Elige el monitor donde juegas</small></div><select class="input" id="ovDisplay" style="width:auto"><option>…</option></select></div>`}
         ${IS_CAP ? '' : `<div class="setting"><div><b>Overlay para directos</b><small>Añádelo en OBS o Streamlabs como «Fuente de navegador» (1920×1080)</small></div><button class="btn" id="obsCopy">Copiar dirección</button></div>`}
@@ -1967,7 +2021,7 @@ VIEWS.ajustes = (root) => {
         <div class="row wrap" style="margin-top:10px"><button class="btn ghost" id="viewLog">${ic('note')}Ver registro de errores</button><button class="btn ghost" id="openData">Abrir carpeta de datos</button></div></section>`}` : ''}
       ${!IS_CAP && !pc ? `<section class="card">${notConnectedCard()}</section>` : ''}
       ${IS_CAP ? '' : `<section class="card"><h2>Atajos de teclado</h2><div class="stack" style="gap:0">${SHORTCUT_LIST.map(([k, d]) => `<div class="setting"><span>${d}</span><span>${k.split('+').map((x) => `<kbd>${x}</kbd>`).join(' + ')}</span></div>`).join('')}</div></section>`}
-      <section class="card"><h2>Acerca de</h2><p><b>Xito Truck Hub</b> ${esc(S.version || '')} · Xito Development</p>
+      <section class="card"><h2>Acerca de</h2><p><b>Xito Truck Hub</b> ${esc(APP_VERSION)} · Xito Development</p>
         ${IS_CAP ? '' : '<button class="btn" id="reWizard" style="margin-top:12px">Repetir el asistente de configuración</button>'}
         <div class="row wrap" style="gap:8px;margin-top:10px"><a class="btn ghost" href="https://github.com/Xito-Development/xito-truck-hub" target="_blank" rel="noopener">Código y licencia (MIT)</a><a class="btn ghost" href="https://github.com/Xito-Development/xito-truck-hub/blob/main/THIRD-PARTY-NOTICES.md" target="_blank" rel="noopener">Avisos de terceros</a></div>
         <p class="muted" style="font-size:13px;margin-top:6px">Telemetría mediante el SDK de SCS y el plugin de RenCloud (MIT). Jugador, VTC, servidores y convoyes desde la API pública de TruckersMP; tráfico desde traffic.krashnz.com y el mapa en vivo de TruckersMP. World of Trucks no ofrece API pública: tus entregas se registran aquí, en local.</p></section>
@@ -1979,6 +2033,7 @@ VIEWS.ajustes = (root) => {
   const bind = () => {
     bindThemes(root);
     bindPrefs(root);
+    balanceCols($('.set-cols', root));
     if (IS_CAP) $('#hubChange').onclick = () => connectScreen();
     if ($('#mNotify')) $('#mNotify').onchange = (e) => { LS.set('notify', e.target.checked); if (e.target.checked) askNotifyPermission(); };
     if ($('#mAwake')) $('#mAwake').onchange = (e) => { LS.set('awake', e.target.checked); keepAwake(e.target.checked); };
@@ -2010,6 +2065,8 @@ VIEWS.ajustes = (root) => {
     if ($('#ovPlace')) $('#ovPlace').onclick = () => post('/api/overlay', { action: 'edit' });
     if ($('#ovWidgets')) $('#ovWidgets').onclick = (e) => { const c = e.target.closest('[data-wg]'); if (!c) return; const v = c.getAttribute('aria-pressed') !== 'true'; c.setAttribute('aria-pressed', v); save({ overlay: { widgets: { [c.dataset.wg]: { on: v } } } }); };
     tog('ovRotate', (v) => save({ overlay: { mapRotate: v } }));
+    if ($('#ovRoute')) $('#ovRoute').onclick = (e) => { const c = e.target.closest('[data-v]'); if (!c) return; $$('#ovRoute [data-v]').forEach((x) => x.setAttribute('aria-pressed', x === c)); save({ overlay: { routeMode: c.dataset.v } }); };
+    if ($('#ovRange')) $('#ovRange').onclick = (e) => { const c = e.target.closest('[data-v]'); if (!c) return; $$('#ovRange [data-v]').forEach((x) => x.setAttribute('aria-pressed', x === c)); save({ overlay: { playerRange: +c.dataset.v } }); };
     tog('ovF5', (v) => save({ overlay: { f5Zoom: v } }));
     if ($('#ovDisplay')) api('/api/displays').then((list) => {
       const sel = $('#ovDisplay'); if (!sel) return;
@@ -2267,6 +2324,13 @@ function initWindowBar() {
   window.hubNative.onWinState?.(set);
   window.hubNative.winState?.().then(set).catch(() => {});
 }
+let uiErrs = 0;
+function reportUiError(msg) {
+  if (uiErrs++ > 20) return;
+  try { if (S.connected || IS_ELECTRON) post('/api/log/client', { msg: `${IS_CAP ? '[móvil]' : '[PC]'} ${location.hash} ${msg}` }).catch(() => {}); } catch {}
+}
+window.addEventListener('error', (e) => reportUiError(`${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}`));
+window.addEventListener('unhandledrejection', (e) => reportUiError('Promesa: ' + (e.reason?.message || e.reason)));
 async function init() {
   initWindowBar();
   document.documentElement.dataset.theme = LS.get('theme', 'autopista');

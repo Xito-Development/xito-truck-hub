@@ -19,14 +19,20 @@ const saveOverlay = (patch) => { hub.store.updateSettings({ overlay: patch }); h
 
 // ---------- ventana principal (sin marco: la barra de título y los botones son nuestros) ----------
 function createWindow() {
+  // Recupera el tamaño y la posición de la última vez (si esa pantalla sigue existiendo)
+  const saved = S().window || {};
+  const onScreen = saved.x != null && screen.getAllDisplays().some((d) => saved.x >= d.bounds.x - 50 && saved.y >= d.bounds.y - 50 && saved.x < d.bounds.x + d.bounds.width - 100 && saved.y < d.bounds.y + d.bounds.height - 100);
   win = new BrowserWindow({
-    width: 1320, height: 860, minWidth: 980, minHeight: 640, show: false, icon,
+    width: saved.w || 1320, height: saved.h || 860, ...(onScreen ? { x: saved.x, y: saved.y } : {}), minWidth: 980, minHeight: 640, show: false, icon,
     frame: false, backgroundColor: '#0e1522', title: 'Xito Truck Hub', roundedCorners: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true }
   });
   win.loadURL(`http://localhost:${PORT}/`);
   win.webContents.on('did-fail-load', (_e, code, _d, _u, isMain) => { if (isMain && code !== -3) setTimeout(() => win && !win.isDestroyed() && win.loadURL(`http://localhost:${PORT}/`), 1000); });
-  win.once('ready-to-show', () => { if (!START_HIDDEN && !S().startMinimized) win.show(); });
+  win.once('ready-to-show', () => { if (saved.max) win.maximize(); if (!START_HIDDEN && !S().startMinimized) win.show(); });
+  let bTimer = null;
+  const saveBounds = () => { clearTimeout(bTimer); bTimer = setTimeout(() => { if (!win || win.isDestroyed() || win.isMinimized()) return; const b = win.getNormalBounds(); S().window = { x: b.x, y: b.y, w: b.width, h: b.height, max: win.isMaximized() }; hub.store.save(); }, 800); };
+  ['resize', 'move', 'maximize', 'unmaximize'].forEach((ev) => win.on(ev, saveBounds));
   const sendState = () => win && !win.isDestroyed() && win.webContents.send('win-state', { maximized: win.isMaximized(), focused: win.isFocused() });
   ['maximize', 'unmaximize', 'focus', 'blur', 'restore'].forEach((ev) => win.on(ev, sendState));
   // Con el HUB en primer plano el overlay se aparta para no tapar la ventana
@@ -233,6 +239,15 @@ app.whenReady().then(() => {
   refreshTray();
   setTimeout(() => { createWindow(); createOverlay(); }, 400);
   setTimeout(checkForUpdates, 8000);
+  // El icono de la bandeja dice qué está pasando
+  setInterval(() => {
+    if (!tray) return;
+    const t = hub.tracker.live, st = hub.tracker.status?.state;
+    let tip = 'Xito Truck Hub';
+    if (st === 'connected' && t?.sdk) tip += t.job?.onJob ? ` · Hacia ${t.job.toCity} (${Math.round((t.nav?.distance || 0) / 1000)} km)` : ' · Conducción libre';
+    else if (hub.game?.state?.running) tip += ' · Juego abierto';
+    try { tray.setToolTip(tip); } catch {}
+  }, 10000);
   setInterval(checkForUpdates, 6 * 3600e3);
   for (const [acc, fn] of Object.entries(SHORTCUTS)) { try { globalShortcut.register(acc, fn); } catch {} }
   // F5: cambia el zoom del mini mapa del overlay y deja pasar la tecla al juego (que la usa para su navegador)

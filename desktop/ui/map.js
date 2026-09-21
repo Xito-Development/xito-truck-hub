@@ -491,7 +491,7 @@
       const R = S.navRoute;
       const cityOpts = locs.filter((l) => l.t === 'city').map((l) => `<option value="${esc(l.n)}"></option>`).join('');
       const planner = `<div class="row wrap" style="gap:8px;margin-top:14px"><input class="input" list="cityList" id="rpFrom" placeholder="Origen (vacío = mi camión)" style="flex:1;min-width:150px">
-        <input class="input" list="cityList" id="rpTo" placeholder="Destino" style="flex:1;min-width:150px"><button class="btn" id="rpGo">Planificar</button><datalist id="cityList">${cityOpts}</datalist></div>`;
+        <input class="input" list="cityList" id="rpTo" placeholder="Destino" style="flex:1;min-width:150px"><button class="btn" id="rpGo">Ir aquí</button>${S.navRoute?.manual ? '<button class="btn ghost" id="rpClear">Quitar ruta</button>' : ''}<datalist id="cityList">${cityOpts}</datalist></div>`;
       if (!S.connected) { box.innerHTML = `<h2>Ruta recomendada</h2><p class="muted">Conecta con el PC para calcular rutas por las carreteras más concurridas.</p>`; return; }
       if (!R) {
         box.innerHTML = `<h2>Ruta recomendada</h2><p class="muted">${esc(S.routeError && S.live?.job?.onJob ? S.routeError : 'Cuando aceptes un trabajo calcularé por dónde pasa la ruta más concurrida de TruckersMP. También puedes planificar una ruta aquí.')}</p>${planner}`;
@@ -517,6 +517,7 @@
         $('#rvSeg').onclick = (e) => { const c = e.target.closest('[data-v]'); if (!c) return; routeView = c.dataset.v; dirty = true; renderRoute(); };
         box.querySelector('[data-rc]').onclick = () => { planning = false; loadRoute(true); };
       }
+      if ($('#rpClear')) $('#rpClear').onclick = async () => { await post('/api/route/clear').catch(() => {}); S.navRoute = null; dirty = true; renderRoute(); };
       $('#rpGo').onclick = async () => {
         const find = (n) => locs.find((l) => l.t === 'city' && l.n.toLowerCase() === String(n).trim().toLowerCase());
         const to = find($('#rpTo').value); if (!to) return toast('Elige un destino de la lista', '', 'x', 'bad');
@@ -528,7 +529,10 @@
         $('#rpGo').disabled = true; $('#rpGo').textContent = 'Calculando…';
         try {
           planning = true;
-          S.navRoute = await api(`/api/route?game=${game}&fromX=${fx}&fromY=${fy}&toX=${to.x}&toY=${to.y}&toName=${encodeURIComponent(to.n)}`, { timeout: 60000 });
+          // Se guarda como ruta activa: aparece también en el mini mapa del overlay
+          S.navRoute = await api('/api/route/manual', { method: 'POST', body: { game, fromX: from ? fx : '', fromY: from ? fy : '', toX: to.x, toY: to.y, toName: to.n }, timeout: 60000 });
+          S.navRoute.manual = true;
+          toast('Ruta activa', `Hacia ${to.n}: la verás en el mini mapa del overlay`, 'mapa', 'good');
           setFollow(false); const mid = S.navRoute.popular?.points || [];
           if (mid.length) { const xs = mid.map((p) => p[0]), ys = mid.map((p) => p[1]); cam.x = (Math.min(...xs) + Math.max(...xs)) / 2; cam.y = (Math.min(...ys) + Math.max(...ys)) / 2; ppu = Math.min(0.2, Math.min(W() / (Math.max(...xs) - Math.min(...xs) + 4000), H() / (Math.max(...ys) - Math.min(...ys) + 4000))); }
           dirty = true; renderRoute();

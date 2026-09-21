@@ -634,8 +634,10 @@ textarea.input { font: inherit; }
 }
 
 /* Ajustes en columnas, sin huecos entre tarjetas */
-.set-cols { columns: 2 440px; column-gap: 16px; }
-.set-cols > .card { break-inside: avoid; display: block; width: 100%; margin: 0 0 16px; }
+.set-cols { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
+.set-cols.two { grid-template-columns: 1fr 1fr; }
+.set-cols .mcol { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.set-cols .mcol > .card { margin: 0; }
 .upd-bottom { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
 .upd-bottom small { display: block; }
 

@@ -19,7 +19,21 @@ class Navigator {
     lisboa: 'lisbon', warszawa: 'warsaw', roma: 'rome', milano: 'milan', torino: 'turin', venezia: 'venice', firenze: 'florence', napoli: 'naples',
     genova: 'genoa', sevilla: 'seville', frankfurt: 'frankfurt am main', den_haag: 'the hague', gdansk: 'gdansk', krakow: 'krakow', bucuresti: 'bucharest',
     beograd: 'belgrade', sofiya: 'sofia', athina: 'athens', kobenhavn: 'copenhagen', goteborg: 'gothenburg', malmo: 'malmo', tallinn: 'tallinn',
-    rostock: 'rostock', luxembourg: 'luxembourg', strasbourg: 'strasbourg', a_coruna: 'a coruna', cordoba: 'cordoba', malaga: 'malaga'
+    rostock: 'rostock', luxembourg: 'luxembourg', strasbourg: 'strasbourg', a_coruna: 'a coruna', cordoba: 'cordoba', malaga: 'malaga',
+    sankt_peterburg: 'saint petersburg', st_peterburg: 'saint petersburg', moskva: 'moscow', kyiv: 'kiev', vilnius: 'vilnius', riga: 'riga',
+    klagenfurt: 'klagenfurt am worthersee', dusseldorf: 'dusseldorf', brussel: 'brussels', antwerpen: 'antwerp', liege: 'liege', aachen: 'aachen',
+    zurich: 'zurich', basel: 'basel', bern: 'bern', edinburgh: 'edinburgh', london: 'london', istanbul: 'istanbul', tirane: 'tirana',
+    // nombres de ciudades en español (el juego las da en el idioma elegido)
+    munich: 'munich', colonia: 'cologne', viena: 'vienna', praga: 'prague', varsovia: 'warsaw', bruselas: 'brussels', ginebra: 'geneva',
+    milan: 'milan', turin: 'turin', venecia: 'venice', florencia: 'florence', napoles: 'naples', genova: 'genoa', copenhague: 'copenhagen',
+    gotemburgo: 'gothenburg', estocolmo: 'stockholm', moscu: 'moscow', sanpetersburgo: 'saint petersburg', atenas: 'athens', estambul: 'istanbul',
+    bucarest: 'bucharest', belgrado: 'belgrade', burdeos: 'bordeaux', marsella: 'marseille', niza: 'nice', estrasburgo: 'strasbourg',
+    francfort: 'frankfurt am main', hamburgo: 'hamburg', berlin: 'berlin', dresde: 'dresden', nuremberg: 'nuremberg', zurich2: 'zurich',
+    berna: 'bern', basilea: 'basel', salzburgo: 'salzburg', cracovia: 'krakow', breslavia: 'wroclaw', londres: 'london', edimburgo: 'edinburgh',
+    amsterdam: 'amsterdam', roterdam: 'rotterdam', lahaya: 'the hague', amberes: 'antwerp', lieja: 'liege', luxemburgo: 'luxembourg',
+    aquisgran: 'aachen', tallin: 'tallinn', vilna: 'vilnius', kiev: 'kiev', lisboa2: 'lisbon', oporto: 'porto', mannheim: 'mannheim',
+    hanover: 'hannover', coblenza: 'koblenz', maguncia: 'mainz', ratisbona: 'regensburg', lucerna: 'lucerne', tesalonica: 'thessaloniki',
+    sofia: 'sofia', calais: 'calais', dunkerque: 'dunkirk', calais2: 'calais'
   };
   async findCity(game, name, id) {
     const learned = this.store.data.cities[String(id || '').toLowerCase()] || this.store.data.cities[String(name || '').toLowerCase()];
@@ -66,10 +80,11 @@ class Navigator {
 // Distancia (en unidades del mapa) del camión a la ruta, y el índice del punto más cercano
 Navigator.prototype.offRoute = function () {
   const R = this.cache?.value, t = this.tracker.live?.truck;
-  if (!R || !t || !R.popular) return null;
+  if (!R || !t || !(R.popular || R.fastest)) return null;
   const [x, y] = router.tf(R.game, t.x, t.z);
   let best = Infinity;
-  for (const p of R.popular.points) { const d = Math.hypot(p[0] - x, p[1] - y); if (d < best) best = d; }
+  // Vale cualquiera de las dos rutas (la del GPS suele coincidir con la más corta)
+  for (const route of [R.popular, R.fastest]) for (const p of route?.points || []) { const d = Math.hypot(p[0] - x, p[1] - y); if (d < best) best = d; }
   return best;
 };
 module.exports = Navigator;

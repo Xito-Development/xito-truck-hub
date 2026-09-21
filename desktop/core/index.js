@@ -53,21 +53,53 @@ function start({ dataDir, resourcesDir, uiDir, port = 25580, hooks = {}, version
   });
 
   // Navegación en tiempo real: si te sales de la ruta recomendada (o cambia el destino) se recalcula sola
-  let lastDest = null, rerouting = false;
+  let lastDest = null, rerouting = false, lastFail = null, lastFailAt = 0;
   const navTimer = setInterval(async () => {
     const t = tracker.live, j = t?.job;
+    // Ruta puesta a mano desde el HUB o el móvil: tiene prioridad y se quita al llegar
+    if (nav.manual && t && t.sdk && t.truck && !rerouting) {
+      const [dx, dy] = nav.manual.to;
+      if (Math.hypot(t.truck.x - dx, t.truck.z - dy) < 900) {
+        nav.manual = null; nav.cache = null;
+        srv.broadcast({ t: 'route', d: null });
+        srv.broadcast({ t: 'alert', d: { id: 'route-arrived', title: 'Has llegado a tu destino', text: 'Se ha quitado la ruta del mini mapa.', level: 'good', at: Date.now() } });
+        return;
+      }
+      const off = nav.offRoute();
+      if (off != null && off < 1800) return;
+      rerouting = true;
+      try { const r = await nav.compute({ game: nav.manual.game, to: nav.manual.to, toName: nav.manual.toName }); srv.broadcast({ t: 'route', d: { ...r, manual: true, rerouted: off != null } }); }
+      catch {} finally { rerouting = false; }
+      return;
+    }
     if (!t || !t.sdk || !j || !j.onJob || rerouting) { if (!j?.onJob) lastDest = null; return; }
     const dest = j.toCity + '|' + j.toCompany;
     const off = nav.offRoute();
     if (dest === lastDest && off != null && off < 1800) return;
     if (dest === lastDest && off == null && nav.cache) return;
     rerouting = true;
+    if (dest === lastFail && Date.now() - lastFailAt < 120000) { rerouting = false; return; }
     try {
       const r = await nav.compute();
-      lastDest = dest;
+      lastDest = dest; lastFail = null;
       srv.broadcast({ t: 'route', d: { ...r, rerouted: off != null && off >= 1800 } });
-    } catch {} finally { rerouting = false; }
+    } catch (e) {
+      lastFail = dest; lastFailAt = Date.now();
+      srv.broadcast({ t: 'route-error', d: { error: e.message, dest: j.toCity } });
+    } finally { rerouting = false; }
   }, 15000);
+  // Hora del servidor de TruckersMP (en TMP el reloj va 6 veces más rápido que el real y es común para todos)
+  const tmpClock = { gt: null, at: 0 };
+  const syncClock = async () => { try { const r = await require('./tmp').gameTime(); const gt = r?.game_time ?? r; if (typeof gt === 'number') { tmpClock.gt = gt; tmpClock.at = Date.now(); } } catch {} };
+  syncClock(); const clockTimer = setInterval(syncClock, 5 * 60000);
+  tracker.tmpTime = () => {
+    const lt = tracker.live;
+    if (lt && lt.mpOffset) return Math.floor((lt.gameTime || 0) + lt.mpOffset); // Convoy (multijugador oficial)
+    if (tmpClock.gt == null) return null;
+    const onTmp = !!(traffic.me || game.state?.tmp);
+    if (!onTmp) return null;
+    return Math.floor(tmpClock.gt + ((Date.now() - tmpClock.at) / 60000) * 6);
+  };
   const srv = createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir, version, traffic, discord, nav, game, relayRef, tacho, vtcBot, convoy, tmpWatch, laliga });
   relayRef.relay = new Relay(store, (m, p, b) => srv.call(m, p, b),
     async () => ({ t: 'hello', status: tracker.status, live: tracker.live, current: store.data.current, settings: store.data.settings, traffic: traffic.nearby, game: game.state }));
@@ -96,7 +128,7 @@ function start({ dataDir, resourcesDir, uiDir, port = 25580, hooks = {}, version
   world.startHeat(() => tracker.status?.state === 'connected');
   // Marca sin avisar los logros que ya estaban conseguidos al abrir el HUB
   setTimeout(() => alerts.checkAchievements(true), 5000);
-  const stop = () => { clearInterval(navTimer); laliga.stop(); tmpWatch.stop(); convoy.stop(true); vtcBot.stop(); relayRef.relay.stop(); game.stop(); world.stopHeat(); traffic.stop(); discord.stop(); bridge.stop(); store.save(true); try { srv.server.close(); } catch {} };
+  const stop = () => { clearInterval(clockTimer); clearInterval(navTimer); laliga.stop(); tmpWatch.stop(); convoy.stop(true); vtcBot.stop(); relayRef.relay.stop(); game.stop(); world.stopHeat(); traffic.stop(); discord.stop(); bridge.stop(); store.save(true); try { srv.server.close(); } catch {} };
   return { store, tracker, bridge, srv, traffic, alerts, discord, nav, game, relay: relayRef.relay, tacho, vtcBot, convoy, stop };
 }
 module.exports = { start };

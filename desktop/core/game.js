@@ -15,7 +15,13 @@ class Game extends EventEmitter {
         const out = (await run('tasklist', ['/FO', 'CSV', '/NH'])).toLowerCase();
         let game = null;
         for (const [exe, g] of Object.entries(EXES)) if (out.includes(`"${exe}"`)) game = g;
-        const tmp = out.includes('"truckersmp-launcher.exe"') || out.includes('truckersmp');
+        // TruckersMP se carga dentro del propio juego: se detecta por su módulo (core_ets2mp.dll / core_atsmp.dll)
+        let tmp = out.includes('truckersmp');
+        if (game && !tmp) {
+          const mod = game === 'ats' ? 'core_atsmp.dll' : 'core_ets2mp.dll';
+          const m = (await run('tasklist', ['/M', mod, '/FO', 'CSV', '/NH'])).toLowerCase();
+          tmp = m.includes('.exe');
+        }
         const next = { running: !!game, game, tmp };
         if (next.running !== this.state.running || next.game !== this.state.game || next.tmp !== this.state.tmp) { this.state = next; this.emit('change', next); }
       }
