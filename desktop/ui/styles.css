@@ -632,3 +632,16 @@ textarea.input { font: inherit; }
   .map-ctl > .chip, .map-ctl > a.chip { grid-column: 1 / -1; justify-self: start; }
   .map-ctl .input { padding: 10px 12px; font-size: 14px; }
 }
+
+/* Ajustes en columnas, sin huecos entre tarjetas */
+.set-cols { columns: 2 440px; column-gap: 16px; }
+.set-cols > .card { break-inside: avoid; display: block; width: 100%; margin: 0 0 16px; }
+.upd-bottom { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.upd-bottom small { display: block; }
+
+/* Capas del mapa en un panel plegable: el mapa queda despejado */
+.map-layers-btn { position: absolute; left: 12px; top: 12px; z-index: 3; gap: 8px; background: color-mix(in srgb, var(--surface) 90%, transparent); backdrop-filter: blur(8px); }
+.map-layers { top: 60px !important; z-index: 3; display: grid !important; grid-template-columns: repeat(2, auto); gap: 6px; padding: 10px; border-radius: 16px; background: color-mix(in srgb, var(--surface) 94%, transparent); border: 1px solid var(--line); box-shadow: var(--shadow); max-width: none !important; overflow: visible !important; }
+.map-layers.hidden { display: none !important; }
+.map-layers .chip { justify-content: flex-start; }
+@media (max-width: 860px) { .map-legend { display: none; } }

@@ -32,7 +32,7 @@
     const counts = {}; for (const p of d) counts[p.ServerId] = (counts[p.ServerId] || 0) + 1;
     return { server: sid, me: me ? { x: me.X, y: me.Y, server: me.ServerId } : null,
       servers: Object.entries(counts).map(([id, n]) => ({ id: +id, players: n, name: `Servidor ${id}` })).sort((a, b) => b.players - a.players),
-      players: d.filter((p) => p.ServerId === sid).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name]) };
+      players: d.filter((p) => p.ServerId === sid).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name, p.Time || 0]) };
   }
   const locCache = {};
   async function getLocations(game) {
@@ -79,7 +79,8 @@
           <button class="btn" id="mZoomIn" aria-label="Acercar">+</button><button class="btn" id="mZoomOut" aria-label="Alejar">−</button>
           <button class="btn ${cfg.follow ? 'primary' : ''}" id="mFollow" title="Seguir a mi camión">${ic('truck')}</button>
         </div>
-        <div class="map-layers chips">
+        <button class="btn map-layers-btn" id="mLayers">${ic('layers')}Capas</button>
+        <div class="map-layers chips hidden" id="mLayerPanel">
           <button class="chip" data-l="heat" aria-pressed="${cfg.heat}">Tráfico</button>
           <button class="chip" data-l="route" aria-pressed="${cfg.route}">Ruta</button>
           <button class="chip" data-l="layer" aria-pressed="${cfg.layer}">Jugadores</button>
@@ -113,8 +114,13 @@
     const cs = () => getComputedStyle(document.documentElement);
 
     function drawTiles() {
-      const g = G();
       const L = Math.max(1, Math.min(4, 1 + Math.floor(Math.log(0.256 / ppu) / Math.log(3))));
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      if (L < 4) drawLevel(L + 1);
+      drawLevel(L);
+    }
+    function drawLevel(L) {
+      const g = G();
       const [lv, step, o] = LEVELS[L - 1];
       const size = 1000 * Math.pow(3, lv - 1);
       const [x0, y0] = toW(0, 0), [x1, y1] = toW(W(), H());
@@ -127,8 +133,9 @@
           const [sx, sy] = toS(cx - size / 2, cy - size / 2, false);
           const sz = size * ppu;
           if (sx > W() || sy > H() || sx + sz < 0 || sy + sz < 0) continue;
-          const e = img(`${g.url}/${a}_${i}${suffix}.png`, () => { dirty = true; });
-          if (e.ok) ctx.drawImage(e.im, sx, sy, sz + 0.5, sz + 0.5);
+          const url = `${g.url}/${a}_${i}${suffix}.png`;
+          const e = img(url, () => { dirty = true; });
+          if (e && e.ok) ctx.drawImage(e.im, sx, sy, sz + 0.5, sz + 0.5);
         }
       }
     }
@@ -142,13 +149,14 @@
       // tráfico en tiempo real (mapa de calor)
       if (cfg.heat && heat.length) {
         const good = C.getPropertyValue('--good').trim(), warn = C.getPropertyValue('--warn').trim(), bad = C.getPropertyValue('--bad').trim();
-        const rad = Math.min(26, Math.max(2.5, 650 * ppu));
-        ctx.globalAlpha = ppu > 0.08 ? 0.28 : 0.5;
+        // Manchas suaves solo donde hay tráfico de verdad: el mapa sigue viéndose debajo
+        const rad = Math.min(16, Math.max(2, 420 * ppu));
         for (const [x, y, v] of heat) {
+          const q = v / heatMax; if (q < 0.1) continue;
           const [sx, sy] = toS(x, y); if (sx < -rad || sy < -rad || sx > W() + rad || sy > H() + rad) continue;
-          const q = v / heatMax;
-          ctx.fillStyle = q > 0.45 ? bad : q > 0.15 ? warn : good;
-          ctx.beginPath(); ctx.arc(sx, sy, rad * (0.7 + Math.min(1, q) * 0.8), 0, 7); ctx.fill();
+          ctx.globalAlpha = Math.min(0.55, 0.18 + q * 0.4);
+          ctx.fillStyle = q > 0.5 ? bad : q > 0.22 ? warn : good;
+          ctx.beginPath(); ctx.arc(sx, sy, rad * (0.6 + Math.min(1, q) * 0.6), 0, 7); ctx.fill();
         }
         ctx.globalAlpha = 1;
       }
@@ -203,12 +211,13 @@
       if (cfg.layer) {
         const k = Math.min(1, (performance.now() - playersAt) / 3000);
         if (k < 1) dirty = true;
-        ctx.fillStyle = C.getPropertyValue('--muted'); const r = ppu > 0.08 ? 5 : ppu > 0.03 ? 3 : 1.6;
+        ctx.fillStyle = C.getPropertyValue('--accent2'); ctx.strokeStyle = C.getPropertyValue('--bg'); ctx.lineWidth = 1.5;
+        const r = ppu > 0.08 ? 7 : ppu > 0.03 ? 5 : 2;
         for (const p of players) {
           const prev = prevPos.get(p[3]);
           const x = prev ? prev[0] + (p[0] - prev[0]) * k : p[0], y = prev ? prev[1] + (p[1] - prev[1]) * k : p[1];
           const [sx, sy] = toS(x, y); if (sx < -5 || sy < -5 || sx > W() + 5 || sy > H() + 5) continue;
-          if (r >= 5) { ctx.beginPath(); ctx.arc(sx, sy, r / 1.6, 0, 7); ctx.fill(); } else ctx.fillRect(sx - r / 2, sy - r / 2, r, r);
+          if (r >= 5) { ctx.beginPath(); ctx.arc(sx, sy, r / 1.6, 0, 7); ctx.fill(); ctx.stroke(); } else ctx.fillRect(sx - r / 2, sy - r / 2, r, r);
         }
       }
       // ciudades
@@ -363,6 +372,8 @@
     $('#mFollow').onclick = () => setFollow(!cfg.follow);
     $('#mZoomIn').onclick = () => zoomAt(W() / 2, H() / 2, 1.6);
     $('#mZoomOut').onclick = () => zoomAt(W() / 2, H() / 2, 1 / 1.6);
+    $('#mLayers').onclick = (e) => { e.stopPropagation(); $('#mLayerPanel').classList.toggle('hidden'); };
+    cv.addEventListener('pointerdown', () => $('#mLayerPanel')?.classList.add('hidden'));
     $$('.map-layers .chip', root).forEach((c) => (c.onclick = () => { cfg[c.dataset.l] = !cfg[c.dataset.l]; c.setAttribute('aria-pressed', cfg[c.dataset.l]); saveCfg(); dirty = true; }));
     $('#mapGame').onclick = async (e) => {
       const c = e.target.closest('[data-g]'); if (!c) return;
@@ -385,7 +396,7 @@
       const fr = $('#mapFrame'); if (!fr) return;
       if (v && !fr.src) fr.src = 'https://map.truckersmp.com/';
       fr.classList.toggle('hidden', !v); cv.classList.toggle('hidden', v);
-      $$('.map-tools, .map-layers, .map-legend, .map-info', root).forEach((x) => x.classList.toggle('hidden', v));
+      $$('.map-tools, .map-layers-btn, .map-legend, .map-info', root).forEach((x) => x.classList.toggle('hidden', v));
       $('#mapOfficial')?.setAttribute('aria-pressed', v);
     };
     if ($('#mapOfficial')) { $('#mapOfficial').onclick = () => setOfficial(!cfg.official); if (cfg.official) setOfficial(true); }
@@ -397,9 +408,25 @@
     }
     // Guarda las posiciones anteriores para animar el movimiento hasta las nuevas
     let curServer = null;
-    function setPlayers(list) {
-      prevPos = new Map(players.map((p) => [p[3], [p[0], p[1]]]));
-      players = list; playersAt = performance.now(); dirty = true;
+    // Cada jugador conserva siempre su dato más reciente: el mapa completo llega con retraso y, si se
+    // mezclaba sin más con la zona en tiempo real, los camiones saltaban hacia atrás y hacia delante
+    function setPlayers(list, full) {
+      const now = performance.now(), k = Math.min(1, (now - playersAt) / 3000);
+      const old = new Map(players.map((p) => [p[3], p]));
+      // posición que se está viendo ahora mismo (a mitad de animación)
+      const shown = new Map(players.map((p) => { const pr = prevPos.get(p[3]); return [p[3], pr ? [pr[0] + (p[0] - pr[0]) * k, pr[1] + (p[1] - pr[1]) * k] : [p[0], p[1]]]; }));
+      const next = new Map(full ? [] : old);
+      for (const p of list) {
+        const o = old.get(p[3]);
+        next.set(p[3], o && (o[5] || 0) > (p[5] || 0) ? o : p);
+      }
+      prevPos = new Map();
+      for (const [id, p] of next) {
+        const s0 = shown.get(id);
+        // solo se anima si el salto es pequeño (un ferry o un teletransporte aparecen directamente)
+        if (s0 && Math.hypot(p[0] - s0[0], p[1] - s0[1]) < 1500) prevPos.set(id, s0);
+      }
+      players = [...next.values()]; playersAt = now; dirty = true;
     }
     // Jugadores de la zona que estás viendo, casi en tiempo real (cada 3 s)
     async function loadArea() {
@@ -408,16 +435,18 @@
       try {
         let list;
         if (S.connected) list = (await api(`/api/map/area?x1=${x1}&y1=${y1}&x2=${x2}&y2=${y2}&server=${cfg.server === 'auto' ? (curServer || 'auto') : cfg.server}`)).players;
-        else { const q = `x1=${Math.round(x1)}&y1=${Math.round(y2)}&x2=${Math.round(x2)}&y2=${Math.round(y1)}&server=${curServer || 2}`; list = ((await directJson('https://tracker.ets2map.com/v3/area?' + q)).Data || []).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name]); }
+        else { const q = `x1=${Math.round(x1)}&y1=${Math.round(y2)}&x2=${Math.round(x2)}&y2=${Math.round(y1)}&server=${curServer || 2}`; list = ((await directJson('https://tracker.ets2map.com/v3/area?' + q)).Data || []).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name, p.Time || 0]); }
+        // Los que estaban en la vista y ya no aparecen se han desconectado o se han ido
         const inView = new Set(list.map((p) => p[3]));
-        const outside = players.filter((p) => !inView.has(p[3]) && !(p[0] >= Math.min(x1, x2) && p[0] <= Math.max(x1, x2) && p[1] >= Math.min(y1, y2) && p[1] <= Math.max(y1, y2)));
-        setPlayers(outside.concat(list));
+        const X1 = Math.min(x1, x2), X2 = Math.max(x1, x2), Y1 = Math.min(y1, y2), Y2 = Math.max(y1, y2);
+        players = players.filter((p) => inView.has(p[3]) || !(p[0] >= X1 && p[0] <= X2 && p[1] >= Y1 && p[1] <= Y2));
+        setPlayers(list, false);
       } catch {}
     }
     async function loadPlayers() {
       try {
         const r = await getPlayers(cfg.server);
-        setPlayers(r.players); me = r.me; servers = r.servers; curServer = r.server;
+        setPlayers(r.players, true); me = r.me; servers = r.servers; curServer = r.server;
         const sel = $('#mapServer'); if (!sel) return;
         const cur = cfg.server;
         sel.innerHTML = `<option value="auto">Mi servidor${r.me ? '' : ' (no conectado)'}</option>` + servers.map((s) => `<option value="${s.id}" ${String(s.id) === String(cur) ? 'selected' : ''}>${esc(s.name)} · ${s.players}</option>`).join('');
@@ -428,7 +457,7 @@
         // Plan B: pedirlo directamente desde la app
         try {
           const d = (await directJson('https://tracker.ets2map.com/v3/fullmap', 25000)).Data || [];
-          players = d.filter((p) => p.ServerType !== 2).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name]);
+          players = d.filter((p) => p.ServerType !== 2).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name, p.Time || 0]);
           $('#mapSub') && ($('#mapSub').textContent = `${n0(players.length)} jugadores en el mapa`); dirty = true;
         } catch (e2) { $('#mapSub') && ($('#mapSub').textContent = `Jugadores no disponibles ahora: ${e2.message}`); }
       }

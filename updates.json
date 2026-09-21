@@ -1,10 +1,9 @@
 {
-  "latest": "1.4.5",
+  "latest": "1.4.7",
   "mandatory": false,
   "notes": [
-    "El móvil descarga e instala las actualizaciones desde la app",
-    "En Windows se ve el instalador nuevo al actualizar",
-    "Mapa más limpio y arreglos en el móvil sin PC"
+    "Jugadores del mapa sin saltos raros",
+    "Mapa más nítido y despejado, con botón «Capas»"
   ],
   "exe": "https://github.com/Xito-Development/xito-truck-hub/releases/latest/download/XitoTruckHub-Setup.exe",
   "apk": "https://github.com/Xito-Development/xito-truck-hub/releases/latest/download/XitoTruckHub.apk",

@@ -208,7 +208,7 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
     },
     'GET /api/friends': async () => world.friends(store.data.settings.friends || [], tracker.live?.truck ? { x: tracker.live.truck.x, z: tracker.live.truck.z } : null),
     'POST /api/update/install': async (_q, b) => { if (!hooks.installUpdate) throw new Error('Solo disponible en el programa de Windows'); if (!/^https:\/\/(github\.com|objects\.githubusercontent\.com)\//.test(b.url || '')) throw new Error('Dirección de descarga no válida'); hooks.installUpdate(b.url, b.version); return { ok: true }; },
-    'GET /api/update/check': async (q) => world.checkUpdate(q.get('repo') || store.data.settings.updates?.repo, version, store.data.settings.updates?.url),
+    'GET /api/update/check': async () => world.checkUpdate('Xito-Development/xito-truck-hub', version, ''),
     'POST /api/jobs/update': async (_q, b) => {
       const j = store.data.jobs.find((x) => x.id === b.id);
       if (!j) throw new Error('Trabajo no encontrado');

@@ -169,7 +169,7 @@ async function checkForUpdates() {
   try {
     const u = S().updates || {};
     if (u.check === false) return;
-    const r = await require('../core/world').checkUpdate(u.repo || 'Xito-Development/xito-truck-hub', app.getVersion(), u.url);
+    const r = await require('../core/world').checkUpdate('Xito-Development/xito-truck-hub', app.getVersion(), '');
     if (!r || !r.available) return;
     hub.srv.broadcast({ t: 'update-available', d: r });
     if (S().lastUpdateNotified === r.latest) return;

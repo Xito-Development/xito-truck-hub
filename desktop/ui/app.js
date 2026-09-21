@@ -1616,15 +1616,7 @@ function prefsHtml() {
     ${numField('goWeekRev', 'Ingresos a la semana', go.weeklyRevenue ?? 0, cur(), 0, 1000)}
     ${numField('goWeekJobs', 'Entregas a la semana', go.weeklyJobs ?? 0, '', 0)}
     <small class="muted">Pon 0 para ocultar un objetivo.</small>
-  </section>` : ''}
-  <section class="card"><h2>Actualizaciones</h2>
-    <p class="muted" style="margin-bottom:12px">Versión ${APP_VERSION}. Al actualizar, el instalador y el APK conservan todos tus datos.</p>
-    ${S.connected ? `<div class="field"><label for="upRepo">Repositorio de GitHub</label><input class="input" id="upRepo" placeholder="usuario/xito-truck-hub" value="${esc(up.repo || '')}"></div>
-    <div class="field" style="margin-top:10px"><label for="upUrl">URL de updates.json (opcional)</label><input class="input" id="upUrl" placeholder="https://raw.githubusercontent.com/usuario/repo/main/updates.json" value="${esc(up.url || '')}"></div>
-    ${sw('upAuto', up.check !== false, 'Buscar actualizaciones al abrir')}` : ''}
-    <div class="row wrap" style="margin-top:10px"><button class="btn primary" id="upCheck">Buscar ahora</button><button class="btn ghost" id="upNotes">Novedades de esta versión</button></div>
-    <p class="muted" id="upMsg" style="font-size:13px;margin-top:10px"></p>
-  </section>`;
+  </section>` : ''}`;
 }
 function bindPrefs(root) {
   const seg = (id, fn) => { const el = $('#' + id); if (!el) return; el.onclick = (e) => { const c = e.target.closest('[data-v]'); if (!c) return; $$('#' + id + ' .chip').forEach((x) => x.setAttribute('aria-pressed', x === c)); fn(c.dataset.v); }; };
@@ -1666,22 +1658,29 @@ function bindPrefs(root) {
   num('fuelPrice', (v) => setPref('costs', { fuelPrice: v }));
   num('goDay', (v) => setPref('goals', { dailyKm: v })); num('goWeekKm', (v) => setPref('goals', { weeklyKm: v }));
   num('goWeekRev', (v) => setPref('goals', { weeklyRevenue: v })); num('goWeekJobs', (v) => setPref('goals', { weeklyJobs: v }));
-  if ($('#upRepo')) $('#upRepo').onchange = (e) => setPref('updates', { repo: e.target.value });
-  if ($('#upUrl')) $('#upUrl').onchange = (e) => setPref('updates', { url: e.target.value.trim() });
-  tog('upAuto', (v) => setPref('updates', { check: v }));
-  $('#upCheck').onclick = async () => {
+  if ($('#upCheck')) $('#upCheck').onclick = async () => {
     const msg = $('#upMsg'); msg.textContent = 'Buscando…';
     try {
       const r = await checkUpdate(true);
       msg.textContent = r.available ? `Hay una versión nueva: ${r.latest}.` : `Tienes la última versión (${r.latest || APP_VERSION}).`;
     } catch (e) { msg.textContent = e.message; }
   };
-  $('#upNotes').onclick = () => showChangelog(APP_VERSION);
+  if ($('#upNotes')) $('#upNotes').onclick = () => showChangelog(APP_VERSION);
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.4.5';
+const APP_VERSION = '1.4.7';
 const CHANGELOG = {
+  '1.4.7': [
+    'Mapa: los jugadores ya no saltan hacia atrás y hacia delante; se mueven suave y solo con su posición más reciente',
+    'Mapa: sin huecos mientras cargan las zonas y con más nitidez',
+    'Mapa más despejado: las capas van en un botón «Capas» y el tráfico se ve como manchas suaves',
+    'Jugadores más visibles al acercar el zoom'
+  ],
+  '1.4.6': [
+    'Ajustes sin huecos entre bloques: las tarjetas se colocan en columnas',
+    'Las actualizaciones llegan siempre del repositorio oficial; «Buscar actualizaciones» está al final de Ajustes'
+  ],
   '1.4.5': [
     'Android: «Actualizar ahora» descarga el APK dentro de la app, con barra de progreso, y abre el instalador',
     'Windows: al actualizar se ve el instalador nuevo, instala solo y vuelve a abrir el HUB'
@@ -1777,6 +1776,7 @@ function showChangelog(v, from) {
   back.querySelector('[data-ok]').onclick = () => back.remove();
 }
 // ---------- actualizador con interfaz propia ----------
+const UPDATE_REPO = 'Xito-Development/xito-truck-hub';
 function showUpdate(r) {
   if ($('.upd-modal')) return;
   const back = document.createElement('div'); back.className = 'modal-back upd-modal';
@@ -1852,10 +1852,9 @@ function newerV(a, b) {
   return false;
 }
 async function checkUpdate(manual) {
-  const repo = S.settings?.updates?.repo || LS.get('repo', '') || 'Xito-Development/xito-truck-hub';
+  const repo = UPDATE_REPO;
   if (S.settings?.updates?.repo) LS.set('repo', S.settings.updates.repo);
-  const jsonUrl = S.settings?.updates?.url || LS.get('updUrl', '') || (repo ? `https://raw.githubusercontent.com/${repo}/main/updates.json` : '');
-  if (S.settings?.updates?.url) LS.set('updUrl', S.settings.updates.url);
+  const jsonUrl = `https://raw.githubusercontent.com/${repo}/main/updates.json`;
   if (!repo && !jsonUrl) throw new Error('Escribe tu repositorio de GitHub o la URL de updates.json para buscar actualizaciones.');
   let r = null;
   // 1) updates.json: la «base de datos» gratuita de versiones (GitHub, Gist o cualquier web)
@@ -1883,8 +1882,8 @@ VIEWS.ajustes = (root) => {
     const dc = st.discord || {};
     const pc = S.connected;
     root.innerHTML = `<div class="head"><div><h1>Ajustes</h1><p>Personaliza el HUB a tu gusto</p></div></div>
-    <div class="grid g2" style="align-items:start">
-      <section class="card span2"><h2>Tema</h2>${themeGrid()}</section>
+    <section class="card" style="margin-bottom:16px"><h2>Tema</h2>${themeGrid()}</section>
+    <div class="set-cols">
       ${prefsHtml()}
       ${IS_CAP ? `<section class="card"><h2>Conexión con el PC</h2>
         <div class="row" style="gap:10px;margin-bottom:12px"><span class="dot ${pc ? 'on' : ''}"></span><b>${pc ? 'Conectado' : 'Sin conexión'}</b><span class="pill">${S.mode === 'remote' ? 'Desde cualquier lugar' : 'Misma Wi‑Fi'}</span></div>
@@ -1972,7 +1971,9 @@ VIEWS.ajustes = (root) => {
         ${IS_CAP ? '' : '<button class="btn" id="reWizard" style="margin-top:12px">Repetir el asistente de configuración</button>'}
         <div class="row wrap" style="gap:8px;margin-top:10px"><a class="btn ghost" href="https://github.com/Xito-Development/xito-truck-hub" target="_blank" rel="noopener">Código y licencia (MIT)</a><a class="btn ghost" href="https://github.com/Xito-Development/xito-truck-hub/blob/main/THIRD-PARTY-NOTICES.md" target="_blank" rel="noopener">Avisos de terceros</a></div>
         <p class="muted" style="font-size:13px;margin-top:6px">Telemetría mediante el SDK de SCS y el plugin de RenCloud (MIT). Jugador, VTC, servidores y convoyes desde la API pública de TruckersMP; tráfico desde traffic.krashnz.com y el mapa en vivo de TruckersMP. World of Trucks no ofrece API pública: tus entregas se registran aquí, en local.</p></section>
-    </div>`;
+    </div>
+    <section class="card upd-bottom"><div><b>Versión ${APP_VERSION}</b><small class="muted" id="upMsg">Las actualizaciones se buscan solas al abrir el HUB.</small></div>
+      <div class="row wrap" style="gap:8px"><button class="btn ghost" id="upNotes">Novedades</button><button class="btn primary" id="upCheck">${ic('download')}Buscar actualizaciones</button></div></section>`;
     bind();
   };
   const bind = () => {

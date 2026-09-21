@@ -50,7 +50,7 @@ async function area({ x1, y1, x2, y2, server }) {
   return cached('area-' + q, 2500, async () => {
     const r = await get('https://tracker.ets2map.com/v3/area?' + q, 8000);
     const j = await r.json();
-    return (j.Data || []).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name]);
+    return (j.Data || []).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name, p.Time || 0]);
   });
 }
 async function players({ server, tmpId }) {
@@ -64,7 +64,7 @@ async function players({ server, tmpId }) {
     server: sid, me: me ? { x: me.X, y: me.Y, server: me.ServerId } : null,
     servers: Object.entries(servers).map(([id, n]) => ({ id: +id, players: n, type: (map.find((p) => p.ServerId === +id) || {}).ServerType })).sort((a, b) => b.players - a.players),
     // Formato compacto: [x, y, rumbo, idTMP, nombre]
-    players: list.map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name])
+    players: list.map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name, p.Time || 0])
   };
 }
 
