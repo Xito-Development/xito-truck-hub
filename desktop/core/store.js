@@ -15,7 +15,7 @@ const DEFAULTS = () => ({
   settings: {
     theme: 'autopista',
     tmpId: null,
-    vtcId: 92307,
+    vtcId: null,
     pin: String(crypto.randomInt(100000, 999999)),
     autoStart: false,
     startMinimized: false,
@@ -102,7 +102,7 @@ class Store {
     if (!isObj(d.cities)) d.cities = {};
     if (!Array.isArray(d.settings.friends)) d.settings.friends = [];
     if (d.settings.theme === 'alboran') d.settings.theme = 'costa';
-    if (d.settings.updates && (!d.settings.updates.repo || d.settings.updates.repo === 'kVeTry/xito-truck-hub')) d.settings.updates.repo = 'Xito-Development/xito-truck-hub';
+    if (d.settings.updates && !d.settings.updates.repo) d.settings.updates.repo = 'Xito-Development/xito-truck-hub';
     d.version = 3;
   }
   save(now = false) {

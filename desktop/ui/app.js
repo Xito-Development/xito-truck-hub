@@ -154,16 +154,36 @@ const TMP_DIRECT = {
   player: (id) => `/player/${id}`, bans: (id) => `/bans/${id}`, servers: () => '/servers', gametime: () => '/game_time',
   events: () => '/events', vtc: (id) => `/vtc/${id}`, 'vtc/members': (id) => `/vtc/${id}/members`, 'vtc/events': (id) => `/vtc/${id}/events`
 };
+// Peticiones directas desde el móvil (sin PC): con cabeceras de navegador para que Cloudflare no
+// devuelva su página de comprobación, y con un error claro si llega una web en vez de datos
+async function directJson(url, timeout = 15000) {
+  const H = { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Mobile Safari/537.36' };
+  const Http = window.Capacitor?.Plugins?.CapacitorHttp;
+  let status = 0, body;
+  if (IS_CAP && Http) {
+    const r = await Http.request({ url, method: 'GET', headers: H, connectTimeout: timeout, readTimeout: timeout, responseType: 'text' });
+    status = r.status; body = r.data;
+  } else {
+    const r = await Promise.race([fetch(url, { headers: { Accept: 'application/json' } }), new Promise((_, j) => setTimeout(() => j(new Error('El servicio no responde')), timeout))]);
+    status = r.status; body = await r.text();
+  }
+  if (body && typeof body === 'object') return body;
+  const text = String(body || '');
+  if (/^\s*</.test(text)) throw new Error(S.laliga?.blocked ? 'Bloqueado por LaLiga (hay fútbol). Vuelve a intentarlo cuando termine.' : status === 404 ? 'No encontrado' : 'El servicio no está disponible desde esta red ahora mismo. Inténtalo en un rato o conecta con el PC.');
+  if (status >= 400 && !text) throw new Error(`Error ${status}`);
+  return JSON.parse(text);
+}
+window.directJson = directJson;
 async function tmp(kind, id) {
   if (S.connected) return api(`/api/tmp/${kind}${id ? `?id=${encodeURIComponent(id)}` : ''}`);
   const sid = id || (kind.startsWith('vtc') ? tmpIds().vtc : tmpIds().player);
-  const r = await fetch('https://api.truckersmp.com/v2' + TMP_DIRECT[kind](sid));
-  const j = await r.json();
+  if (!sid && TMP_DIRECT[kind].length) throw new Error(kind.startsWith('vtc') ? 'Añade tu VTC en «Mi VTC»' : 'Configura tu ID de TruckersMP');
+  const j = await directJson('https://api.truckersmp.com/v2' + TMP_DIRECT[kind](sid));
   if (j.error === true || j.error === 'true') throw new Error('TruckersMP no devolvió datos');
   return j.response !== undefined ? j.response : j;
 }
 function tmpIds() {
-  return { player: S.settings?.tmpId || LS.get('tmpId', null), vtc: S.settings?.vtcId || LS.get('vtcId', 92307) };
+  return { player: S.settings?.tmpId || LS.get('tmpId', null), vtc: S.settings?.vtcId || LS.get('vtcId', null) };
 }
 
 // ---------- tiempo real ----------
@@ -1200,7 +1220,7 @@ VIEWS.convoy = (root) => {
       root.innerHTML = `<div class="head"><div><h1>Convoy</h1><p>Mira a tus compañeros en el mapa y en el overlay, aunque no estéis en TruckersMP</p></div></div>
         <div class="grid g2">
           <section class="card"><h2>Crear un convoy</h2><p class="muted" style="margin-bottom:14px">Serás el líder. Comparte el código con tu grupo.</p>
-            <div class="field"><label for="cvName">Tu nombre en el convoy</label><input class="input" id="cvName" maxlength="30" value="${esc(C.name || '')}" placeholder="Ej.: kVe"></div>
+            <div class="field"><label for="cvName">Tu nombre en el convoy</label><input class="input" id="cvName" maxlength="30" value="${esc(C.name || '')}" placeholder="Ej.: Conductor1"></div>
             <button class="btn primary" id="cvCreate" style="margin-top:14px">${ic('convoy')}Crear convoy</button></section>
           <section class="card"><h2>Unirse a un convoy</h2><p class="muted" style="margin-bottom:14px">Escribe el código que te ha pasado el líder.</p>
             <div class="field"><label for="cvCode">Código</label><input class="input code-in" id="cvCode" placeholder="CNV-XXXX-XXXX" autocapitalize="characters"></div>
@@ -1319,7 +1339,7 @@ async function saveTmpId(id) {
 function tmpSetupCard() {
   return `<section class="card" style="max-width:560px"><h2>Conecta tu perfil de TruckersMP</h2>
     <p class="muted" style="margin-bottom:16px">Escribe tu ID de TruckersMP (el número de tu perfil en truckersmp.com/user/…) o tu Steam ID.</p>
-    <div class="row wrap"><input class="input" id="tmpIdIn" inputmode="numeric" placeholder="Ej.: 5644561" style="flex:1;min-width:180px">
+    <div class="row wrap"><input class="input" id="tmpIdIn" inputmode="numeric" placeholder="Ej.: 1234567" style="flex:1;min-width:180px">
     <button class="btn primary" id="tmpSave">Guardar</button>${!IS_CAP ? `<button class="btn" id="tmpDetect">Detectar desde Steam</button>` : ''}</div>
     <p class="muted" id="tmpMsg" style="margin-top:10px;font-size:13px"></p></section>`;
 }
@@ -1352,7 +1372,7 @@ VIEWS.tmp = (root) => {
       <h2 style="font-size:20px;margin:28px 0 14px">Próximos convoyes</h2>
       <div class="grid g3" id="events">${sk(220)}${sk(220)}${sk(220)}</div>` : tmpSetupCard()}`;
     $('#tmpSearch').onclick = async () => {
-      const q = await askInput({ title: 'Buscar jugador', text: 'Escribe su ID de TruckersMP o su Steam ID.', placeholder: 'Ej.: 5644561', ok: 'Buscar' });
+      const q = await askInput({ title: 'Buscar jugador', text: 'Escribe su ID de TruckersMP o su Steam ID.', placeholder: 'Ej.: 1234567', ok: 'Buscar' });
       if (q) playerSheet(q);
     };
     if (!id) return bindTmpSetup(draw);
@@ -1434,6 +1454,18 @@ function eventCard(e) {
 // ---------- VTC ----------
 VIEWS.vtc = (root) => {
   const id = tmpIds().vtc;
+  if (!id) {
+    root.innerHTML = `<div class="head"><div><h1>Mi VTC</h1><p>Empresa virtual en TruckersMP</p></div></div>
+      <section class="card" style="max-width:560px"><h2>Añade tu VTC</h2><p class="muted" style="margin-bottom:14px">Escribe el número de tu VTC (el que aparece en truckersmp.com/vtc/…).</p>
+      <div class="row wrap"><input class="input" id="vtcIn" inputmode="numeric" placeholder="Ej.: 12345" style="flex:1;min-width:160px"><button class="btn primary" id="vtcSave">Guardar</button></div></section>`;
+    $('#vtcSave').onclick = async () => {
+      const v = $('#vtcIn').value.replace(/\D/g, ''); if (!v) return;
+      LS.set('vtcId', +v);
+      if (S.connected) S.settings = await post('/api/settings', { vtcId: v }).catch(() => S.settings);
+      go('vtc', false);
+    };
+    return;
+  }
   root.innerHTML = `<div class="head"><div><h1>Mi VTC</h1><p>Empresa virtual en TruckersMP</p></div></div>
     <section class="card" id="vtcInfo">${sk(240)}</section>
     <div class="grid g2" style="margin-top:16px"><section class="card" id="vtcMembers"><h2>Miembros</h2>${sk(200)}</section>
@@ -1648,8 +1680,22 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.4.2';
+const APP_VERSION = '1.4.5';
 const CHANGELOG = {
+  '1.4.5': [
+    'Android: «Actualizar ahora» descarga el APK dentro de la app, con barra de progreso, y abre el instalador',
+    'Windows: al actualizar se ve el instalador nuevo, instala solo y vuelve a abrir el HUB'
+  ],
+  '1.4.4': [
+    'Mapa más limpio: los nombres ya no se amontonan (solo países y ciudades, y las empresas al acercarte mucho)',
+    'Móvil sin PC: arreglado el error «Unexpected token <» al buscar jugadores y al cargar el mapa en vivo',
+    'Mensajes de error claros cuando TruckersMP o el mapa no responden (por ejemplo, por los bloqueos del fútbol)',
+    'Cabecera del mapa más compacta en el móvil'
+  ],
+  '1.4.3': [
+    'Los ejemplos de los campos ya no usan datos reales de nadie',
+    'La VTC ya no viene puesta por defecto: si no tienes una configurada, «Mi VTC» te deja añadirla'
+  ],
   '1.4.2': [
     'Al arrancar busca actualizaciones y avisa con una notificación de Windows, aunque el HUB esté en la bandeja',
     'La bandeja muestra «Actualizar a la versión X» cuando hay una nueva',
@@ -1690,7 +1736,7 @@ const CHANGELOG = {
     'Nueva pestaña Recorridos: mapa de todo lo recorrido, velocidad, horarios, países, ciudades y camiones (también sin conexión en el móvil)',
     'Actualizador propio: descarga e instala la nueva versión con barra de progreso; el móvil también avisa',
     'Arreglados los intermitentes y la marcha mostrada; nueva barra superior en el móvil',
-    'El tema «Alborán» pasa a llamarse «Costa»'
+    'El tema de color turquesa pasa a llamarse «Costa»'
   ],
   '1.3.0': [
     'Mapa de tráfico en tiempo real: zonas fluidas, densas y congestionadas de TruckersMP',
@@ -1740,15 +1786,46 @@ function showUpdate(r) {
     <div class="upd-prog hidden" id="updProg"><div class="row between"><b id="updPhase">Descargando…</b><span class="num" id="updPct">0 %</span></div><div class="bar"><i id="updBar" style="width:0"></i></div><small class="muted" id="updInfo"></small></div>
     <div class="row wrap" style="justify-content:flex-end;margin-top:18px;gap:8px" id="updBtns">
       <button class="btn ghost" data-later>Más tarde</button>
-      ${IS_ELECTRON && r.exe ? '<button class="btn primary" data-go-upd>Actualizar ahora</button>' : `<a class="btn primary" href="${esc((IS_CAP ? r.apk : r.exe) || r.url || '#')}" target="_blank" rel="noopener" data-dl>${IS_CAP ? 'Descargar APK' : 'Descargar instalador'}</a>`}
-    </div>${IS_CAP ? '<p class="muted" style="font-size:12px;margin-top:10px">Al terminar la descarga, abre el archivo y pulsa «Actualizar». Android conserva tus datos.</p>' : ''}</div>`;
+      ${(IS_ELECTRON && r.exe) || (IS_CAP && r.apk && window.Capacitor?.Plugins?.ApkUpdater) ? '<button class="btn primary" data-go-upd>Actualizar ahora</button>' : `<a class="btn primary" href="${esc((IS_CAP ? r.apk : r.exe) || r.url || '#')}" target="_blank" rel="noopener" data-dl>${IS_CAP ? 'Descargar APK' : 'Descargar instalador'}</a>`}
+    </div>${IS_CAP ? '<p class="muted" style="font-size:12px;margin-top:10px">Se descarga dentro de la app y se abre el instalador de Android: pulsa «Actualizar». Tus datos se conservan.</p>' : ''}</div>`;
   document.body.appendChild(back);
   back.querySelector('[data-later]').onclick = () => { LS.set('skipUpdate', r.latest); back.remove(); };
   const go = back.querySelector('[data-go-upd]');
-  if (go) go.onclick = async () => {
+  if (go && IS_CAP) go.onclick = () => apkUpdate(r);
+  else if (go) go.onclick = async () => {
     $('#updProg').classList.remove('hidden'); $('#updBtns').classList.add('hidden');
     try { await post('/api/update/install', { url: r.exe, version: r.latest }); } catch (e) { $('#updPhase').textContent = e.message; $('#updBtns').classList.remove('hidden'); }
   };
+}
+// Android: descarga el APK dentro de la app y abre el instalador del sistema
+async function apkUpdate(r) {
+  const P = window.Capacitor.Plugins.ApkUpdater;
+  const mb = (x) => (x / 1048576).toFixed(1).replace('.', ',');
+  $('#updProg').classList.remove('hidden'); $('#updBtns').classList.add('hidden');
+  $('#updPhase').textContent = 'Descargando…';
+  const h = await P.addListener('progress', (p) => {
+    $('#updBar').style.width = p.pct + '%'; $('#updPct').textContent = p.pct + ' %';
+    if (p.total > 0) $('#updInfo').textContent = `${mb(p.got)} de ${mb(p.total)} MB`;
+  });
+  try {
+    await P.download({ url: r.apk });
+    h.remove();
+    await apkInstall();
+  } catch (e) {
+    h.remove();
+    $('#updPhase').textContent = 'No se pudo descargar: ' + e.message; $('#updBtns').classList.remove('hidden');
+  }
+}
+async function apkInstall() {
+  const P = window.Capacitor.Plugins.ApkUpdater;
+  $('#updPhase').textContent = 'Abriendo el instalador…'; $('#updBar').style.width = '100%'; $('#updPct').textContent = '100 %';
+  const res = await P.install();
+  if (res.needsPermission) {
+    S.apkPending = true;
+    $('#updPhase').textContent = 'Permite «Instalar apps desconocidas» para Xito Truck Hub';
+    $('#updInfo').innerHTML = 'Actívalo en la pantalla que se ha abierto y vuelve: la instalación seguirá sola. <button class="btn primary" id="apkRetry" style="margin-top:10px">Instalar</button>';
+    $('#apkRetry').onclick = () => apkInstall();
+  } else { S.apkPending = false; $('#updPhase').textContent = 'Pulsa «Actualizar» en la ventana de Android'; $('#updInfo').textContent = 'Tus datos se conservan.'; }
 }
 on('update', (u) => {
   const box = $('#updProg'); if (!box) return;
@@ -1756,7 +1833,7 @@ on('update', (u) => {
   $('#updBar').style.width = pct + '%'; $('#updPct').textContent = pct + ' %';
   const mb = (x) => (x / 1048576).toFixed(1).replace('.', ',');
   if (u.phase === 'download') { $('#updPhase').textContent = 'Descargando…'; if (u.total) $('#updInfo').textContent = `${mb(u.got)} de ${mb(u.total)} MB`; }
-  else if (u.phase === 'install') { $('#updPhase').textContent = 'Instalando… acepta el permiso de Windows'; $('#updInfo').textContent = 'El HUB se cerrará y volverá a abrirse solo.'; }
+  else if (u.phase === 'install') { $('#updPhase').textContent = 'Abriendo el instalador… acepta el permiso de Windows'; $('#updInfo').textContent = 'El HUB se cerrará, verás el instalador y se volverá a abrir solo.'; }
   else if (u.phase === 'restart') { $('#updPhase').textContent = 'Reiniciando…'; }
   else if (u.phase === 'error') { $('#updPhase').textContent = 'No se pudo actualizar: ' + (u.error || ''); $('#updBtns').classList.remove('hidden'); }
 });
@@ -2040,7 +2117,7 @@ function wizard() {
         .map(([i, t, d], n) => `<div class="wz-feat" style="animation-delay:${n * 80}ms"><span class="ico">${ic(i)}</span><div><b>${t}</b><small>${d}</small></div></div>`).join('')}</div>`,
     game: () => `<h1>Conecta el juego</h1><p class="lead">El HUB lee tu camión con el plugin oficial de telemetría. Al abrir el juego por primera vez, acepta el aviso de «SDK avanzado».</p><div id="wzPlug" class="wz-box">${sk(60)}</div>`,
     tmp: () => `<h1>Tu perfil de TruckersMP</h1><p class="lead">Para ver tu perfil, tus amigos en el mapa y los convoyes.</p>
-      <div class="wz-box"><div class="field"><label for="wzTmp">ID de TruckersMP</label><div class="row wrap"><input class="input" id="wzTmp" inputmode="numeric" placeholder="Ej.: 5644561" value="${esc(state.tmpId)}" style="flex:1;min-width:160px"><button class="btn" id="wzDetect">${ic('search')}Detectar desde Steam</button></div></div>
+      <div class="wz-box"><div class="field"><label for="wzTmp">ID de TruckersMP</label><div class="row wrap"><input class="input" id="wzTmp" inputmode="numeric" placeholder="Ej.: 1234567" value="${esc(state.tmpId)}" style="flex:1;min-width:160px"><button class="btn" id="wzDetect">${ic('search')}Detectar desde Steam</button></div></div>
       <p class="muted" id="wzTmpMsg" style="font-size:13px;margin-top:8px"></p>
       <div class="field" style="margin-top:14px"><label for="wzVtc">ID de tu VTC</label><input class="input" id="wzVtc" inputmode="numeric" value="${esc(state.vtcId)}"></div></div>`,
     style: () => `<h1>Elige tu estilo</h1><p class="lead">Tema y color de acento. Todo se puede ajustar después.</p>${themeGrid()}
@@ -2219,7 +2296,8 @@ async function init() {
       if (S.route !== 'cabina') return go('cabina');
       (CapApp.minimizeApp || CapApp.exitApp).call(CapApp);
     });
-    CapApp.addListener('appStateChange', ({ isActive }) => { if (isActive && !S.connected) { S.wsFails = 0; connectHub(); } if (isActive && Date.now() - (S.lastUpdCheck || 0) > 3600e3) { S.lastUpdCheck = Date.now(); checkUpdate(false).catch(() => {}); } });
+    CapApp.addListener('appStateChange', ({ isActive }) => { if (isActive && S.apkPending && $('#updProg')) { setTimeout(() => apkInstall().catch(() => {}), 600); }
+      if (isActive && !S.connected) { S.wsFails = 0; connectHub(); } if (isActive && Date.now() - (S.lastUpdCheck || 0) > 3600e3) { S.lastUpdCheck = Date.now(); checkUpdate(false).catch(() => {}); } });
   }
   on('conn', async () => {
     if (S.connected) {

@@ -25,7 +25,7 @@
   // Datos: a través del PC o directo desde el móvil sin PC
   async function getPlayers(server) {
     if (S.connected) return api(`/api/map/players?server=${encodeURIComponent(server || 'auto')}`);
-    const r = await fetch('https://tracker.ets2map.com/v3/fullmap'); const d = (await r.json()).Data || [];
+    const d = (await directJson('https://tracker.ets2map.com/v3/fullmap', 25000)).Data || [];
     const tmpId = Number(tmpIds().player);
     const me = d.find((p) => p.MpId === tmpId);
     const sid = server && server !== 'auto' ? +server : me ? me.ServerId : 2;
@@ -41,7 +41,7 @@
     if (S.connected && S.mode !== 'remote') out = await api(`/api/map/locations?game=${game}`);
     else {
       // En el móvil (remoto o sin PC) se descarga directamente: pesa demasiado para enviarlo por el acceso remoto
-      const raw = await (await fetch(`https://map.truckersmp.com/locations_${game}.min.json`)).json();
+      const raw = await directJson(`https://map.truckersmp.com/locations_${game}.min.json`, 30000);
       const KEEP = { fuel: 'fuel', parking: 'rest', service: 'service', garage: 'garage', dealer: 'dealer', recruitment: 'recruit', ferry: 'port', business: 'company' };
       const pretty = (id) => String(id || '').replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
       out = [];
@@ -67,11 +67,11 @@
     let cam = { x: G().cam.x, y: G().cam.y }, ppu = 0.02, dirty = true, raf = 0;
     let prevPos = new Map(), playersAt = 0, smoothPos = null, vtcMates = [], players = [], me = null, servers = [], locs = [], trail = [], friends = [], jobPath = [], hover = null, heat = [], heatMax = 1, routeView = 'popular', planning = false;
 
-    root.innerHTML = `<div class="head" style="margin-bottom:14px"><div><h1>Mapa</h1><p id="mapSub">TruckersMP en directo</p></div>
-      <div class="row wrap"><div class="chips" id="mapGame">${Object.entries(GAMES).map(([k, g]) => `<button class="chip" data-g="${k}" aria-pressed="${k === game}">${g.name}</button>`).join('')}</div>
-      <input class="input" id="mapSearch" list="mapSearchList" placeholder="Buscar ciudad o empresa" aria-label="Buscar en el mapa" style="width:min(230px,42vw)"><datalist id="mapSearchList"></datalist>
+    root.innerHTML = `<div class="head map-head" style="margin-bottom:14px"><div><h1>Mapa</h1><p id="mapSub">TruckersMP en directo</p></div>
+      <div class="row wrap map-ctl"><div class="chips" id="mapGame">${Object.entries(GAMES).map(([k, g]) => `<button class="chip" data-g="${k}" aria-pressed="${k === game}">${g.name}</button>`).join('')}</div>
+      <input class="input" id="mapSearch" list="mapSearchList" placeholder="Buscar ciudad o empresa" aria-label="Buscar en el mapa"><datalist id="mapSearchList"></datalist>
       <select class="input" id="mapServer" style="width:auto" aria-label="Servidor"><option value="auto">Mi servidor</option></select>
-      ${IS_ELECTRON ? `<button class="chip" id="mapOfficial" aria-pressed="${!!cfg.official}">Mapa oficial de TruckersMP</button>` : `<a class="chip" href="https://map.truckersmp.com" target="_blank" rel="noopener">Mapa oficial de TruckersMP</a>`}</div></div>
+      ${IS_ELECTRON ? `<button class="chip" id="mapOfficial" aria-pressed="${!!cfg.official}">Mapa oficial de TruckersMP</button>` : `<a class="chip" href="https://map.truckersmp.com" target="_blank" rel="noopener">Mapa oficial</a>`}</div></div>
       <div class="map-wrap">
         <iframe id="mapFrame" class="map-frame hidden" title="Mapa oficial de TruckersMP" loading="lazy"></iframe>
         <canvas id="mapCv" aria-label="Mapa del juego"></canvas>
@@ -184,20 +184,19 @@
         ctx.stroke(); ctx.globalAlpha = 1;
       }
       // puntos de interés (gasolineras, descanso, talleres, garajes, empresas…)
-      if (ppu > 0.028 && locs.length) {
+      if (ppu > 0.045 && locs.length) {
         const POI = { fuel: ['#ffb547', 'fuel'], rest: ['#6fb6ff', 'rest'], service: ['#ff7a59', 'service'], garage: ['#b07cff', 'garage'], company: ['#4fd1a1', 'company'], dealer: ['#e5e55b', 'more'], recruit: ['#e5e55b', 'more'], port: ['#43e0ff', 'more'], toll: ['#e5e55b', 'more'], weigh: ['#e5e55b', 'more'] };
         const GLY = { fuel: 'G', rest: 'P', service: 'T', garage: 'H', company: 'E', dealer: 'C', recruit: 'A', port: 'F', toll: '€', weigh: 'B' };
         const sz = ppu > 0.12 ? 16 : ppu > 0.06 ? 12 : 8;
         ctx.textAlign = 'center'; ctx.font = `700 ${Math.round(sz * 0.62)}px Barlow, sans-serif`;
         for (const l of locs) {
           const m = POI[l.t]; if (!m || !cfg[m[1]]) continue;
-          if (l.t === 'company' && ppu < 0.06) continue;
+          if (l.t === 'company' && ppu < 0.09) continue;
           const [sx, sy] = toS(l.x, l.y); if (sx < -20 || sy < -20 || sx > W() + 20 || sy > H() + 20) continue;
           ctx.fillStyle = m[0]; ctx.globalAlpha = 0.95;
           ctx.beginPath(); ctx.roundRect ? ctx.roundRect(sx - sz / 2, sy - sz / 2, sz, sz, sz / 3.5) : ctx.rect(sx - sz / 2, sy - sz / 2, sz, sz); ctx.fill();
           ctx.globalAlpha = 1;
           if (sz >= 12) { ctx.fillStyle = '#0b1220'; ctx.fillText(GLY[l.t], sx, sy + sz * 0.22); }
-          if (l.t === 'company' && l.n && ppu > 0.14) { ctx.font = '600 11px Barlow, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = C.getPropertyValue('--bg'); ctx.strokeText(l.n, sx, sy + sz + 4); ctx.fillStyle = text; ctx.fillText(l.n, sx, sy + sz + 4); ctx.font = `700 ${Math.round(sz * 0.62)}px Barlow, sans-serif`; }
         }
       }
       // jugadores (se mueven suavemente entre actualizaciones)
@@ -213,15 +212,32 @@
         }
       }
       // ciudades
+      // Solo países y ciudades (las empresas van aparte y con mucho zoom); los nombres que se
+      // pisarían con otro ya dibujado se omiten para que el mapa no quede apretado
+      const placed = [];
+      const free = (x, y, w, h) => { for (const b of placed) if (x < b[0] + b[2] && x + w > b[0] && y < b[1] + b[3] && y + h > b[1]) return false; placed.push([x, y, w, h]); return true; };
+      const label = (txt, sx, sy, font, color) => {
+        ctx.font = font; const w = ctx.measureText(txt).width + 8, h = parseInt(font.split(' ')[1]) + 6;
+        if (!free(sx - w / 2, sy - h + 4, w, h)) return;
+        ctx.lineWidth = 3; ctx.strokeStyle = C.getPropertyValue('--bg'); ctx.strokeText(txt, sx, sy);
+        ctx.fillStyle = color; ctx.fillText(txt, sx, sy);
+      };
       if (cfg.labels) {
-        ctx.textAlign = 'center'; ctx.font = '600 12px Barlow, sans-serif';
+        ctx.textAlign = 'center'; ctx.lineJoin = 'round';
         for (const l of locs) {
-          if (l.t === 'country' && ppu > 0.03) continue;
-          if (l.t === 'city' && ppu < 0.012) continue;
+          if (l.t !== 'country' || ppu > 0.03) continue;
           const [sx, sy] = toS(l.x, l.y); if (sx < -60 || sy < -20 || sx > W() + 60 || sy > H() + 20) continue;
-          ctx.font = l.t === 'country' ? '700 14px Barlow, sans-serif' : '600 12px Barlow, sans-serif';
-          ctx.lineWidth = 3; ctx.strokeStyle = C.getPropertyValue('--bg'); ctx.strokeText(l.n, sx, sy);
-          ctx.fillStyle = l.t === 'country' ? C.getPropertyValue('--muted') : text; ctx.fillText(l.n, sx, sy);
+          label(l.n.toUpperCase(), sx, sy, '700 13px Barlow, sans-serif', C.getPropertyValue('--muted'));
+        }
+        if (ppu >= 0.012) for (const l of locs) {
+          if (l.t !== 'city') continue;
+          const [sx, sy] = toS(l.x, l.y); if (sx < -60 || sy < -20 || sx > W() + 60 || sy > H() + 20) continue;
+          label(l.n, sx, sy, ppu > 0.06 ? '700 13px Barlow, sans-serif' : '600 12px Barlow, sans-serif', text);
+        }
+        if (ppu > 0.12 && cfg.company) for (const l of locs) {
+          if (l.t !== 'company' || !l.n) continue;
+          const [sx, sy] = toS(l.x, l.y); if (sx < -60 || sy < -20 || sx > W() + 60 || sy > H() + 20) continue;
+          label(l.n, sx, sy + 20, '600 11px Barlow, sans-serif', C.getPropertyValue('--muted'));
         }
       }
       // amigos
@@ -392,7 +408,7 @@
       try {
         let list;
         if (S.connected) list = (await api(`/api/map/area?x1=${x1}&y1=${y1}&x2=${x2}&y2=${y2}&server=${cfg.server === 'auto' ? (curServer || 'auto') : cfg.server}`)).players;
-        else { const q = `x1=${Math.round(x1)}&y1=${Math.round(y2)}&x2=${Math.round(x2)}&y2=${Math.round(y1)}&server=${curServer || 2}`; list = ((await (await fetch('https://tracker.ets2map.com/v3/area?' + q)).json()).Data || []).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name]); }
+        else { const q = `x1=${Math.round(x1)}&y1=${Math.round(y2)}&x2=${Math.round(x2)}&y2=${Math.round(y1)}&server=${curServer || 2}`; list = ((await directJson('https://tracker.ets2map.com/v3/area?' + q)).Data || []).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name]); }
         const inView = new Set(list.map((p) => p[3]));
         const outside = players.filter((p) => !inView.has(p[3]) && !(p[0] >= Math.min(x1, x2) && p[0] <= Math.max(x1, x2) && p[1] >= Math.min(y1, y2) && p[1] <= Math.max(y1, y2)));
         setPlayers(outside.concat(list));
@@ -411,10 +427,10 @@
       } catch (e) {
         // Plan B: pedirlo directamente desde la app
         try {
-          const r = await fetch('https://tracker.ets2map.com/v3/fullmap'); const d = (await r.json()).Data || [];
+          const d = (await directJson('https://tracker.ets2map.com/v3/fullmap', 25000)).Data || [];
           players = d.filter((p) => p.ServerType !== 2).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name]);
           $('#mapSub') && ($('#mapSub').textContent = `${n0(players.length)} jugadores en el mapa`); dirty = true;
-        } catch { $('#mapSub') && ($('#mapSub').textContent = `No se pudo cargar el mapa en vivo (${e.message}). Se reintentará solo.`); }
+        } catch (e2) { $('#mapSub') && ($('#mapSub').textContent = `Jugadores no disponibles ahora: ${e2.message}`); }
       }
     }
     async function loadVtc() { if (!S.connected) return; try { vtcMates = await api('/api/vtc/online'); dirty = true; } catch {} }
@@ -527,7 +543,7 @@
       if (del) { S.settings = await post('/api/settings', { friends: (S.settings.friends || []).filter((f) => String(f.id) !== del.dataset.del) }); loadFriends(); }
     };
     $('#addFriend').onclick = async () => {
-      const id = await askInput({ title: 'Añadir amigo', text: 'Escribe su ID de TruckersMP (el número de truckersmp.com/user/…).', placeholder: 'Ej.: 5644561', ok: 'Añadir' });
+      const id = await askInput({ title: 'Añadir amigo', text: 'Escribe su ID de TruckersMP (el número de truckersmp.com/user/…).', placeholder: 'Ej.: 1234567', ok: 'Añadir' });
       if (id) addFriend(id);
     };
 

@@ -127,7 +127,7 @@ namespace XitoSetup
     public class SetupForm : Form
     {
         const string Magic = "XITOPKG1";
-        readonly bool silent;
+        readonly bool silent, auto;
         string innerPath, installedVersion, installDir;
         readonly Label title = new Label(), sub = new Label(), status = new Label(), pctLbl = new Label(), foot = new Label();
         readonly XButton go = new XButton(), later = new XButton { Primary = false }, openApp = new XButton();
@@ -140,9 +140,9 @@ namespace XitoSetup
         System.Windows.Forms.Timer anim = new System.Windows.Forms.Timer { Interval = 40 };
         float animTarget, animVal;
 
-        public SetupForm(bool silent)
+        public SetupForm(bool silent, bool auto)
         {
-            this.silent = silent;
+            this.silent = silent; this.auto = auto;
             Text = "Instalar Xito Truck Hub";
             FormBorderStyle = FormBorderStyle.None; StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(620, 460); BackColor = Theme.Bg; DoubleBuffered = true;
@@ -153,6 +153,8 @@ namespace XitoSetup
             anim.Tick += (s, e) => { animVal += (animTarget - animVal) * 0.18f; bar.Value = animVal; pctLbl.Text = (int)(animVal * 100) + " %"; };
             anim.Start();
             if (silent) { Opacity = 0; Shown += async (s, e) => { await Run(); Close(); }; }
+            // Actualización lanzada desde el HUB: se ve el instalador, empieza solo y reabre el programa
+            else if (auto) Shown += async (s, e) => { await Task.Delay(700); await Run(); if (openApp.Visible) { await Task.Delay(1800); LaunchApp(); Close(); } };
         }
 
         Icon LoadIcon()
@@ -381,7 +383,7 @@ namespace XitoSetup
 
         int RunInner()
         {
-            var psi = new ProcessStartInfo(innerPath, "/S --force-run") { UseShellExecute = false, CreateNoWindow = true };
+            var psi = new ProcessStartInfo(innerPath, "/S") { UseShellExecute = false, CreateNoWindow = true };
             using (var p = Process.Start(psi))
             {
                 var t = 0;
@@ -423,11 +425,15 @@ namespace XitoSetup
         [STAThread]
         static void Main(string[] args)
         {
-            bool silent = false;
-            foreach (var a in args) if (a.Equals("/S", StringComparison.OrdinalIgnoreCase) || a.Equals("/silent", StringComparison.OrdinalIgnoreCase)) silent = true;
+            bool silent = false, auto = false;
+            foreach (var a in args)
+            {
+                if (a.Equals("/S", StringComparison.OrdinalIgnoreCase) || a.Equals("/silent", StringComparison.OrdinalIgnoreCase)) silent = true;
+                if (a.Equals("--auto", StringComparison.OrdinalIgnoreCase)) auto = true;
+            }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new SetupForm(silent));
+            Application.Run(new SetupForm(silent, auto));
         }
     }
 }

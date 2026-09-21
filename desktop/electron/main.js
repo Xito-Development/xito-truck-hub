@@ -154,8 +154,8 @@ async function installUpdate(url, version) {
     await new Promise((ok) => out.end(ok));
     if (got < 5e6) throw new Error('El archivo descargado no parece un instalador');
     send({ phase: 'install', pct: 100 });
-    // Instalación silenciosa con permisos de administrador; el instalador vuelve a abrir el HUB al terminar
-    const ps = `Start-Process -FilePath '${file.replace(/'/g, "''")}' -ArgumentList '/S','--force-run','--updated' -Verb RunAs`;
+    // Abre nuestro instalador en modo automático: se ve el progreso, instala solo y vuelve a abrir el HUB
+    const ps = `Start-Process -FilePath '${file.replace(/'/g, "''")}' -ArgumentList '--auto' -Verb RunAs`;
     execFile('powershell', ['-NoProfile', '-Command', ps], { windowsHide: true }, (err) => {
       if (err) return send({ phase: 'error', error: 'Cancelaste el permiso de administrador' });
       send({ phase: 'restart' });

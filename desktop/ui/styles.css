@@ -619,3 +619,16 @@ textarea.input { font: inherit; }
   .dash, .wz { z-index: 96; }
 }
 .lal-x { padding: 6px 8px; } .lal-x svg { width: 16px; height: 16px; }
+
+/* Cabecera del mapa ordenada: juego, búsqueda y servidor en pocas filas */
+.map-ctl #mapSearch { width: 230px; }
+@media (max-width: 860px) {
+  .map-head { flex-direction: column; align-items: stretch; gap: 10px; }
+  .map-head p { font-size: 13px; }
+  .map-ctl { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+  .map-ctl .chips { grid-column: 1 / -1; flex-wrap: nowrap; overflow-x: auto; }
+  .map-ctl #mapSearch { width: 100%; min-width: 0; }
+  .map-ctl #mapServer { max-width: 42vw; }
+  .map-ctl > .chip, .map-ctl > a.chip { grid-column: 1 / -1; justify-self: start; }
+  .map-ctl .input { padding: 10px 12px; font-size: 14px; }
+}
