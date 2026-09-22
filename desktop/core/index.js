@@ -75,7 +75,7 @@ function start({ dataDir, resourcesDir, uiDir, port = 25580, hooks = {}, version
     if (!t || !t.sdk || !j || !j.onJob || rerouting) { if (!j?.onJob) lastDest = null; return; }
     const dest = j.toCity + '|' + j.toCompany;
     const off = nav.offRoute();
-    if (dest === lastDest && off != null && off < 1800) return;
+    if (dest === lastDest && off != null && off < 1800) { const upd = nav.recheckGps(); if (upd) srv.broadcast({ t: 'route', d: upd }); return; }
     if (dest === lastDest && off == null && nav.cache) return;
     rerouting = true;
     if (dest === lastFail && Date.now() - lastFailAt < 120000) { rerouting = false; return; }

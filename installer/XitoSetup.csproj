@@ -12,6 +12,8 @@
     <Company>Xito Development</Company>
     <AssemblyTitle>Instalador de Xito Truck Hub</AssemblyTitle>
     <DebugType>none</DebugType>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />

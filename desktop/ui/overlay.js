@@ -296,7 +296,7 @@ function drawMinimap() {
       ctx.restore();
     }
   }
-  const rsel = O().routeMode === 'popular' ? (route?.popular || route?.fastest) : (route?.fastest || route?.popular);
+  const rsel = O().routeMode === 'popular' ? (route?.popular || route?.fastest) : (route?.gps || route?.fastest || route?.popular);
   let pts = rsel?.points;
   if (pts && pts.length > 1) {
     let from = 0, bd = Infinity; pts.forEach((p, i) => { const d = Math.hypot(p[0] - cx, p[1] - cy); if (d < bd) { bd = d; from = i; } });

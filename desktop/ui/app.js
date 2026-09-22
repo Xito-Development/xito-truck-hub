@@ -1695,8 +1695,12 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.5.2';
 const CHANGELOG = {
+  '1.5.2': [
+    'El mini mapa adivina la ruta de tu GPS: compara varias rutas posibles con la distancia que marca el GPS del juego y dibuja la que coincide, y la corrige mientras conduces',
+    'Instalador: arreglados los fallos del fondo, la barra llega al 100 % y el botón «Abrir» abre el HUB de verdad'
+  ],
   '1.5.1': [
     'Mini mapa: nombres de ciudades en todos los zooms, más grandes cuanto más cerca están y sin pisarse entre sí'
   ],

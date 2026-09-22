@@ -142,7 +142,7 @@ function simplify(pts, tol) {
   return pts.filter((_, i) => keep[i]);
 }
 
-async function route({ game = 'ets2', from, to, heat = [], cities = [], hot = [] }) {
+async function route({ game = 'ets2', from, to, heat = [], cities = [], hot = [] }, opts = {}) {
   const A = tf(game, from[0], from[1]), B = tf(game, to[0], to[1]);
   const G = await buildGrid(game, A, B);
   // Mapa de calor (jugadores recientes) proyectado sobre la rejilla
@@ -188,6 +188,21 @@ async function route({ game = 'ets2', from, to, heat = [], cities = [], hot = []
   const popular = describe(astar(G, s, t, wPop, 1 / (1 + ALPHA)));
   const fastest = describe(astar(G, s, t, wFast, 1));
   if (!popular && !fastest) throw new Error('No se encontró un camino por carretera');
-  return { game, popular, fastest, heatCells: heat.length, grid: { cell: G.C, w: G.W, h: G.H } };
+  // Rutas alternativas para adivinar cuál sigue el GPS del juego (se elige la que cuadra con su distancia)
+  const alts = [];
+  if (opts.alternatives) {
+    // Alternativas de verdad: se penalizan las carreteras ya usadas por las rutas anteriores
+    const pen = new Uint8Array(G.W * G.H);
+    const mark = (path) => { for (const k of path) { const x = k % G.W, y = (k / G.W) | 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < G.W && Y < G.H) pen[Y * G.W + X] = 1; } } };
+    let last = astar(G, s, t, wFast, 1);
+    for (let i = 0; i < 3 && last; i++) {
+      mark(last);
+      const w = (k) => (G.road[k] ? (pen[k] ? 2.2 : 1) : OFFROAD);
+      last = astar(G, s, t, w, 1);
+      const d = describe(last);
+      if (d && !alts.some((a) => Math.abs(a.units - d.units) < 300) && Math.abs(d.units - (fastest?.units || 0)) > 300) alts.push(d);
+    }
+  }
+  return { game, popular, fastest, alts, heatCells: heat.length, grid: { cell: G.C, w: G.W, h: G.H } };
 }
 module.exports = { route, tf };

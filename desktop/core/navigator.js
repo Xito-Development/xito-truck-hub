@@ -68,7 +68,8 @@ class Navigator {
     const p = (async () => {
       const locs = await world.locations(game).catch(() => []);
       const hot = (this.traffic.nearby?.server?.top) || [];
-      const r = await router.route({ game, from, to, heat: world.heatList(game, 0.2), cities: locs.filter((l) => l.t === 'city'), hot });
+      const r = await router.route({ game, from, to, heat: world.heatList(game, 0.2), cities: locs.filter((l) => l.t === 'city'), hot }, { alternatives: true });
+      r.gps = this.pickGps(r);
       const value = { ...r, dest, from, computedAt: Date.now() };
       this.cache = { key, value };
       return value;
@@ -86,5 +87,29 @@ Navigator.prototype.offRoute = function () {
   // Vale cualquiera de las dos rutas (la del GPS suele coincidir con la más corta)
   for (const route of [R.popular, R.fastest]) for (const p of route?.points || []) { const d = Math.hypot(p[0] - x, p[1] - y); if (d < best) best = d; }
   return best;
+};
+// Entre todas las rutas candidatas, la que más se parece a la distancia que marca el GPS del juego
+Navigator.prototype.pickGps = function (r) {
+  const navM = this.tracker.live?.nav?.distance || 0;
+  const cands = [r.fastest, r.popular, ...(r.alts || [])].filter(Boolean);
+  if (!cands.length) return null;
+  if (!navM || this.manual) return r.fastest || cands[0];
+  let best = cands[0], bd = Infinity;
+  for (const c of cands) { const d = Math.abs(c.units - navM); if (d < bd) { bd = d; best = c; } }
+  return { ...best, match: Math.max(0, Math.round(100 - (bd / navM) * 100)) };
+};
+// Mientras conduces se vuelve a elegir: si el GPS va por otro lado, la distancia deja de cuadrar
+Navigator.prototype.recheckGps = function () {
+  const v = this.cache?.value; if (!v || !v.fastest) return null;
+  const prev = v.gps;
+  const t = this.tracker.live?.truck, navM = this.tracker.live?.nav?.distance || 0;
+  if (!t || !navM) return null;
+  const [x, y] = router.tf(v.game, t.x, t.z);
+  // longitud restante de cada candidata desde el punto más cercano al camión
+  const remaining = (c) => { let bi = 0, bd = Infinity; c.points.forEach((p, i) => { const d = Math.hypot(p[0] - x, p[1] - y); if (d < bd) { bd = d; bi = i; } }); let L = 0; for (let i = bi + 1; i < c.points.length; i++) L += Math.hypot(c.points[i][0] - c.points[i - 1][0], c.points[i][1] - c.points[i - 1][1]); return { L, off: bd }; };
+  let best = null, bs = Infinity;
+  for (const c of [v.fastest, v.popular, ...(v.alts || [])].filter(Boolean)) { const { L, off } = remaining(c); const score = Math.abs(L - navM) + off * 2; if (score < bs) { bs = score; best = c; } }
+  if (best && (!prev || best.units !== prev.units)) { v.gps = { ...best, match: Math.max(0, Math.round(100 - (bs / navM) * 100)) }; return v; }
+  return null;
 };
 module.exports = Navigator;

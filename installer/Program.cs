@@ -127,115 +127,71 @@ namespace XitoSetup
     public class SetupForm : Form
     {
         const string Magic = "XITOPKG1";
+        const string AppName = "Xito Truck Hub";
         readonly bool silent, auto;
-        string innerPath, installedVersion, installDir;
-        readonly Label title = new Label(), sub = new Label(), status = new Label(), pctLbl = new Label(), foot = new Label();
-        readonly XButton go = new XButton(), later = new XButton { Primary = false }, openApp = new XButton();
-        readonly XProgress bar = new XProgress();
+        string innerPath, installedVersion, installDir, version;
+        // Todo el texto se dibuja directamente en la ventana: sin etiquetas transparentes (evita fallos del fondo)
+        string title = "", sub = "", status = "", foot = "";
+        bool showProgress, showFeatures = true, installing, done;
+        readonly XButton go = new XButton(), later = new XButton { Primary = false }, openApp = new XButton(), close = new XButton { Primary = false };
         readonly XCheck cShortcut = new XCheck { Text = "Crear acceso directo en el escritorio", Checked = true };
-        readonly XCheck cAuto = new XCheck { Text = "Iniciar con Windows", Sub = "Así registra todos tus viajes aunque olvides abrirlo", Checked = false };
         readonly XCheck cPlugin = new XCheck { Text = "Instalar el plugin de telemetría en ETS2 y ATS", Sub = "Necesario para leer tu camión", Checked = true };
-        Panel body = new Panel();
-        Panel featsPanel;
-        System.Windows.Forms.Timer anim = new System.Windows.Forms.Timer { Interval = 40 };
+        readonly XCheck cAuto = new XCheck { Text = "Iniciar con Windows", Sub = "Así registra todos tus viajes aunque olvides abrirlo", Checked = false };
+        readonly System.Windows.Forms.Timer anim = new System.Windows.Forms.Timer { Interval = 30 };
         float animTarget, animVal;
+        Rectangle barRect;
 
         public SetupForm(bool silent, bool auto)
         {
             this.silent = silent; this.auto = auto;
-            Text = "Instalar Xito Truck Hub";
+            Text = "Instalar " + AppName;
             FormBorderStyle = FormBorderStyle.None; StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(620, 460); BackColor = Theme.Bg; DoubleBuffered = true;
-            Icon = LoadIcon();
+            AutoScaleMode = AutoScaleMode.Dpi;
+            ClientSize = new Size(620, 460); BackColor = Theme.Bg;
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            try { Icon = Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); } catch { }
             Region = new Region(XButton.Round(new Rectangle(0, 0, ClientSize.Width, ClientSize.Height), 16));
+            var v = Assembly.GetExecutingAssembly().GetName().Version;
+            version = v == null ? "" : v.Major + "." + v.Minor + "." + v.Build;
             BuildUi();
             Detect();
-            anim.Tick += (s, e) => { animVal += (animTarget - animVal) * 0.18f; bar.Value = animVal; pctLbl.Text = (int)(animVal * 100) + " %"; };
+            anim.Tick += (s, e) =>
+            {
+                float nv = animVal + (animTarget - animVal) * 0.2f;
+                if (Math.Abs(animTarget - nv) < 0.004f) nv = animTarget; // llega de verdad al 100 %
+                if (nv != animVal) { animVal = nv; Invalidate(new Rectangle(barRect.X, barRect.Y - 30, barRect.Width, 44)); }
+            };
             anim.Start();
-            if (silent) { Opacity = 0; Shown += async (s, e) => { await Run(); Close(); }; }
+            if (silent) { Opacity = 0; ShowInTaskbar = false; Shown += async (s, e) => { await Run(); if (done) LaunchApp(); Close(); }; }
             // Actualización lanzada desde el HUB: se ve el instalador, empieza solo y reabre el programa
-            else if (auto) Shown += async (s, e) => { await Task.Delay(700); await Run(); if (openApp.Visible) { await Task.Delay(1800); LaunchApp(); Close(); } };
-        }
-
-        Icon LoadIcon()
-        {
-            try { return Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); } catch { return null; }
+            else if (auto) Shown += async (s, e) => { await Task.Delay(600); await Run(); if (done) { await Task.Delay(1500); LaunchApp(); Close(); } };
         }
 
         void BuildUi()
         {
-            // cabecera
-            var close = new XButton { Primary = false, Text = "", Width = 34, Height = 28, Left = ClientSize.Width - 46, Top = 12 };
+            close.SetBounds(ClientSize.Width - 46, 12, 34, 28);
             close.Paint += (s, e) =>
             {
                 var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-                using (var p = new Pen(Theme.Text, 1.8f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
-                { g.DrawLine(p, 12, 10, 22, 18); g.DrawLine(p, 22, 10, 12, 18); }
+                using (var p = new Pen(Theme.Text, 1.8f) { StartCap = LineCap.Round, EndCap = LineCap.Round }) { g.DrawLine(p, 12, 9, 22, 19); g.DrawLine(p, 22, 9, 12, 19); }
             };
             close.Click += (s, e) => { if (!installing) Close(); };
             Controls.Add(close);
 
-            var logo = new Panel { Left = 34, Top = 34, Width = 56, Height = 56, BackColor = Theme.Accent };
-            logo.Region = new Region(XButton.Round(new Rectangle(0, 0, 56, 56), 16));
-            logo.Paint += (s, e) =>
-            {
-                var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-                using (var p = new Pen(Theme.AccentInk, 2.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
-                {
-                    g.DrawRectangle(p, 10, 18, 22, 18);
-                    g.DrawLines(p, new[] { new Point(32, 24), new Point(40, 24), new Point(46, 30), new Point(46, 36), new Point(32, 36) });
-                    g.DrawEllipse(p, 14, 34, 7, 7); g.DrawEllipse(p, 34, 34, 7, 7);
-                }
-            };
-            Controls.Add(logo);
+            cShortcut.SetBounds(34, 118, 550, 32);
+            cPlugin.SetBounds(34, 156, 550, 44);
+            cAuto.SetBounds(34, 206, 550, 44);
+            Controls.Add(cShortcut); Controls.Add(cPlugin); Controls.Add(cAuto);
 
-            title.SetBounds(106, 38, 460, 32); title.Font = Theme.F(17f, FontStyle.Bold); title.ForeColor = Theme.Text; title.BackColor = Color.Transparent;
-            sub.SetBounds(106, 70, 470, 22); sub.Font = Theme.F(9.5f); sub.ForeColor = Theme.Muted; sub.BackColor = Color.Transparent;
-            Controls.Add(title); Controls.Add(sub);
-
-            body.SetBounds(34, 112, ClientSize.Width - 68, 250); body.BackColor = Color.Transparent;
-            Controls.Add(body);
-
-            cShortcut.SetBounds(0, 6, body.Width, 32);
-            cPlugin.SetBounds(0, 44, body.Width, 44);
-            cAuto.SetBounds(0, 94, body.Width, 44);
-            body.Controls.Add(cShortcut); body.Controls.Add(cPlugin); body.Controls.Add(cAuto);
-
-            // Tres cosas que hace el programa, para llenar la tarjeta
-            var feats = new Panel { Left = 0, Top = 150, Width = body.Width, Height = 96, BackColor = Color.Transparent };
-            feats.Paint += (s2, e2) =>
-            {
-                var g = e2.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-                string[,] items = { { "Cabina y telemetría en directo", "Velocidad, trabajo, daños y mandos" }, { "Historial, estadísticas y mapa", "Entregas, rutas, tráfico y convoyes" }, { "Overlay en el juego y app para el móvil", "Dentro de ETS2 y desde cualquier lugar" } };
-                for (int i = 0; i < 3; i++)
-                {
-                    int y = i * 32;
-                    using (var b = new SolidBrush(Theme.Accent)) g.FillEllipse(b, 4, y + 10, 7, 7);
-                    TextRenderer.DrawText(g, items[i, 0], Theme.F(9.5f, FontStyle.Bold), new Rectangle(22, y + 2, feats.Width - 22, 18), Theme.Text, TextFormatFlags.Left);
-                    TextRenderer.DrawText(g, items[i, 1], Theme.F(8.5f), new Rectangle(22, y + 18, feats.Width - 22, 16), Theme.Muted, TextFormatFlags.Left);
-                }
-            };
-            body.Controls.Add(feats);
-            featsPanel = feats;
-
-            status.SetBounds(0, 150, body.Width - 70, 24); status.Font = Theme.F(10f, FontStyle.Bold); status.ForeColor = Theme.Text; status.BackColor = Color.Transparent; status.Visible = false;
-            pctLbl.SetBounds(body.Width - 70, 150, 70, 24); pctLbl.Font = Theme.F(10f, FontStyle.Bold); pctLbl.ForeColor = Theme.Accent; pctLbl.TextAlign = ContentAlignment.MiddleRight; pctLbl.BackColor = Color.Transparent; pctLbl.Visible = false;
-            bar.SetBounds(0, 178, body.Width, 10); bar.Visible = false;
-            body.Controls.Add(status); body.Controls.Add(pctLbl); body.Controls.Add(bar);
-
-            go.SetBounds(ClientSize.Width - 34 - 200, ClientSize.Height - 82, 200, 46); go.Text = "Instalar";
-            later.SetBounds(34, ClientSize.Height - 82, 130, 46); later.Text = "Cancelar";
-            openApp.SetBounds(ClientSize.Width - 34 - 230, ClientSize.Height - 82, 230, 46); openApp.Text = "Abrir Xito Truck Hub"; openApp.Visible = false;
+            go.SetBounds(ClientSize.Width - 34 - 200, ClientSize.Height - 86, 200, 46); go.Text = "Instalar";
+            later.SetBounds(34, ClientSize.Height - 86, 130, 46); later.Text = "Cancelar";
+            openApp.SetBounds(ClientSize.Width - 34 - 240, ClientSize.Height - 86, 240, 46); openApp.Text = "Abrir " + AppName; openApp.Visible = false;
             go.Click += async (s, e) => await Run();
             later.Click += (s, e) => { if (!installing) Close(); };
             openApp.Click += (s, e) => { LaunchApp(); Close(); };
             Controls.Add(go); Controls.Add(later); Controls.Add(openApp);
-
-            foot.SetBounds(34, ClientSize.Height - 30, 400, 20); foot.Font = Theme.F(8f); foot.ForeColor = Color.FromArgb(120, Theme.Muted); foot.BackColor = Color.Transparent;
-            foot.Text = "Xito Development · licencia MIT";
-            Controls.Add(foot);
-
-            MouseDown += Drag; title.MouseDown += Drag; sub.MouseDown += Drag; logo.MouseDown += Drag;
+            barRect = new Rectangle(34, 190, ClientSize.Width - 68, 10);
+            MouseDown += Drag;
         }
 
         void Drag(object s, MouseEventArgs e)
@@ -246,13 +202,7 @@ namespace XitoSetup
         [DllImport("user32.dll")] static extern int SendMessage(IntPtr h, int m, int w, int l);
         [DllImport("user32.dll")] static extern bool ReleaseCapture();
 
-        protected override void OnPaintBackground(PaintEventArgs e) { PaintBg(e.Graphics); }
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            base.OnPaint(e);
-            using (var p = new Pen(Theme.Line)) e.Graphics.DrawPath(p, XButton.Round(new Rectangle(0, 0, ClientSize.Width - 1, ClientSize.Height - 1), 16));
-        }
-        // Fondo con degradado y una carretera sutil, como en la app
+        // Fondo con degradado y una carretera sutil, como en la app (también lo usan los botones)
         public void PaintBg(Graphics g)
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -262,81 +212,139 @@ namespace XitoSetup
             using (var p = new Pen(Color.FromArgb(55, Theme.Accent), 3f) { DashStyle = DashStyle.Custom, DashPattern = new[] { 2f, 3f } })
                 g.DrawLine(p, ClientSize.Width - 44, 140, ClientSize.Width - 70, ClientSize.Height);
         }
+        protected override void OnPaintBackground(PaintEventArgs e) { }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics; g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            PaintBg(g);
+            // logo
+            var lr = new Rectangle(34, 34, 56, 56);
+            using (var p = XButton.Round(lr, 16)) using (var b = new SolidBrush(Theme.Accent)) g.FillPath(b, p);
+            using (var p = new Pen(Theme.AccentInk, 2.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+            {
+                g.DrawRectangle(p, lr.X + 10, lr.Y + 18, 22, 18);
+                g.DrawLines(p, new[] { new Point(lr.X + 32, lr.Y + 24), new Point(lr.X + 40, lr.Y + 24), new Point(lr.X + 46, lr.Y + 30), new Point(lr.X + 46, lr.Y + 36), new Point(lr.X + 32, lr.Y + 36) });
+                g.DrawEllipse(p, lr.X + 14, lr.Y + 34, 7, 7); g.DrawEllipse(p, lr.X + 34, lr.Y + 34, 7, 7);
+            }
+            TextRenderer.DrawText(g, title, Theme.F(17f, FontStyle.Bold), new Rectangle(106, 36, 470, 34), Theme.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            TextRenderer.DrawText(g, sub, Theme.F(9.5f), new Rectangle(106, 70, 480, 22), Theme.Muted, TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
 
+            if (showFeatures)
+            {
+                string[,] items = { { "Cabina y telemetría en directo", "Velocidad, trabajo, daños y mandos" }, { "Historial, estadísticas y mapa", "Entregas, rutas, tráfico y convoyes" }, { "Overlay en el juego y app para el móvil", "Dentro de ETS2 y desde cualquier lugar" } };
+                int y0 = installedVersion != null ? 226 : 266;
+                for (int i = 0; i < 3; i++)
+                {
+                    int y = y0 + i * 32;
+                    using (var b = new SolidBrush(Theme.Accent)) g.FillEllipse(b, 38, y + 7, 7, 7);
+                    TextRenderer.DrawText(g, items[i, 0], Theme.F(9.5f, FontStyle.Bold), new Point(56, y), Theme.Text);
+                    TextRenderer.DrawText(g, items[i, 1], Theme.F(8.5f), new Point(56, y + 16), Theme.Muted);
+                }
+            }
+            if (showProgress)
+            {
+                TextRenderer.DrawText(g, status, Theme.F(10f, FontStyle.Bold), new Rectangle(barRect.X, barRect.Y - 30, barRect.Width - 70, 24), Theme.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                TextRenderer.DrawText(g, (int)Math.Round(animVal * 100) + " %", Theme.F(10f, FontStyle.Bold), new Rectangle(barRect.Right - 70, barRect.Y - 30, 70, 24), Theme.Accent, TextFormatFlags.Right | TextFormatFlags.VerticalCenter);
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var p = XButton.Round(barRect, 5)) using (var b = new SolidBrush(Theme.Surface)) g.FillPath(b, p);
+                int w = (int)(barRect.Width * animVal);
+                if (w > 10)
+                    using (var p = XButton.Round(new Rectangle(barRect.X, barRect.Y, w, barRect.Height), 5))
+                    using (var b = new LinearGradientBrush(new Rectangle(barRect.X, barRect.Y, Math.Max(2, w), barRect.Height), Theme.Accent, ControlPaint.Light(Theme.Accent, 0.4f), 0f))
+                        g.FillPath(b, p);
+            }
+            TextRenderer.DrawText(g, foot, Theme.F(8f), new Rectangle(34, ClientSize.Height - 30, 560, 20), Color.FromArgb(150, 142, 155, 180), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+            using (var p = new Pen(Theme.Line)) g.DrawPath(p, XButton.Round(new Rectangle(0, 0, ClientSize.Width - 1, ClientSize.Height - 1), 16));
+        }
+
+        // Busca la instalación anterior en las dos vistas del registro (32 y 64 bits)
         void Detect()
         {
             installedVersion = null;
-            foreach (var root in new[] { Registry.LocalMachine, Registry.CurrentUser })
-                using (var k = root.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
-                    if (k != null)
-                        foreach (var name in k.GetSubKeyNames())
-                            using (var sk = k.OpenSubKey(name))
-                            {
-                                var dn = sk?.GetValue("DisplayName") as string;
-                                if (dn != null && dn.StartsWith("Xito Truck Hub", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    installedVersion = sk.GetValue("DisplayVersion") as string;
-                                    installDir = sk.GetValue("InstallLocation") as string;
-                                }
-                            }
-            var ver = Assembly.GetExecutingAssembly().GetName().Version;
-            var vs = ver == null ? "" : ver.Major + "." + ver.Minor + "." + ver.Build;
+            foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser })
+                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                    try
+                    {
+                        using (var root = RegistryKey.OpenBaseKey(hive, view))
+                        using (var k = root.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
+                            if (k != null)
+                                foreach (var name in k.GetSubKeyNames())
+                                    using (var sk = k.OpenSubKey(name))
+                                    {
+                                        var dn = sk?.GetValue("DisplayName") as string;
+                                        if (dn != null && dn.StartsWith(AppName, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            installedVersion = (sk.GetValue("DisplayVersion") as string) ?? installedVersion;
+                                            var loc = sk.GetValue("InstallLocation") as string;
+                                            if (!string.IsNullOrEmpty(loc)) installDir = loc.Trim('"');
+                                        }
+                                    }
+                    }
+                    catch { }
             if (installedVersion != null)
             {
-                title.Text = "Actualizar Xito Truck Hub";
-                sub.Text = "Tienes la " + installedVersion + " · se instalará la " + vs + " conservando todos tus datos";
-                foot.Text = "Se instalará en " + (string.IsNullOrEmpty(installDir) ? @"C:\Program Files\Xito Truck Hub" : installDir) + " · Xito Development";
+                title = "Actualizar " + AppName;
+                sub = "Tienes la " + installedVersion + " · se instalará la " + version + " conservando todos tus datos";
                 go.Text = "Actualizar";
-                cShortcut.Visible = false; cPlugin.Top = 6; cAuto.Top = 56;
+                cShortcut.Visible = false; cPlugin.Top = 118; cAuto.Top = 168;
             }
-            else
-            {
-                title.Text = "Instalar Xito Truck Hub " + vs;
-                sub.Text = "Tu centro de mando para Euro Truck Simulator 2 y TruckersMP";
-                foot.Text = @"Se instalará en C:\Program Files\Xito Truck Hub · Xito Development · licencia MIT";
-            }
+            else { title = "Instalar " + AppName + " " + version; sub = "Tu centro de mando para Euro Truck Simulator 2 y TruckersMP"; }
+            foot = "Se instalará en " + ProgramDir() + " · Xito Development · licencia MIT";
         }
 
-        bool installing;
+        static string ProgramFiles64()
+        {
+            var p = Environment.GetEnvironmentVariable("ProgramW6432");
+            return string.IsNullOrEmpty(p) ? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) : p;
+        }
+        string ProgramDir() => string.IsNullOrEmpty(installDir) ? Path.Combine(ProgramFiles64(), AppName) : installDir;
+
         async Task Run()
         {
             if (installing) return;
-            installing = true;
-            go.Visible = false; later.Visible = false;
+            installing = true; done = false;
+            go.Visible = later.Visible = false; close.Enabled = false;
             cShortcut.Visible = cPlugin.Visible = cAuto.Visible = false;
-            if (featsPanel != null) featsPanel.Visible = false;
-            status.Visible = pctLbl.Visible = bar.Visible = true;
-            SetStatus("Preparando la instalación…", 0.08f);
+            showFeatures = false; showProgress = true;
+            SetStatus("Preparando la instalación…", 0.06f);
             try
             {
                 await Task.Run(() => Extract());
-                SetStatus(installedVersion != null ? "Actualizando…" : "Instalando…", 0.35f);
+                SetStatus(installedVersion != null ? "Actualizando…" : "Instalando…", 0.34f);
                 WriteOptions();
                 var code = await Task.Run(() => RunInner());
-                if (code != 0) throw new Exception("El instalador terminó con el código " + code);
-                SetStatus("Terminando…", 0.95f);
-                await Task.Delay(600);
-                if (!cShortcut.Visible && cShortcut.Checked == false) RemoveShortcut();
-                SetStatus("¡Listo! Xito Truck Hub está instalado", 1f);
-                title.Text = "¡Todo listo!";
-                sub.Text = "Abre el HUB y el asistente te guiará con el juego, TruckersMP y el móvil.";
-                openApp.Visible = true;
-                if (silent) LaunchApp();
+                if (code != 0) throw new Exception("el instalador terminó con el código " + code);
+                SetStatus("Terminando…", 0.96f);
+                await Task.Delay(500);
+                if (!cShortcut.Checked && installedVersion == null) RemoveShortcut();
+                done = true;
+                SetStatus("¡Listo! " + AppName + " está instalado", 1f);
+                title = "¡Todo listo!";
+                sub = AppExe() != null ? "Pulsa el botón para abrir el HUB." : "Ábrelo desde el menú Inicio.";
+                openApp.Visible = AppExe() != null;
+                later.Text = "Cerrar"; later.Visible = true;
+                foot = "Instalado en " + ProgramDir() + " · Xito Development · licencia MIT";
+                Invalidate();
             }
             catch (Exception ex)
             {
                 SetStatus("No se pudo instalar: " + ex.Message, 0f);
-                title.Text = "Ha fallado la instalación";
-                sub.Text = "Prueba a cerrar el juego y el HUB y vuelve a intentarlo.";
-                go.Text = "Reintentar"; go.Visible = true; later.Visible = true; installing = false;
+                title = "Ha fallado la instalación";
+                sub = "Cierra el juego y el HUB (también en la bandeja) y vuelve a intentarlo.";
+                go.Text = "Reintentar"; go.Visible = true; later.Visible = true;
+                Invalidate();
             }
-            finally { try { if (innerPath != null && File.Exists(innerPath)) File.Delete(innerPath); } catch { } }
+            finally
+            {
+                installing = false; close.Enabled = true;
+                try { if (innerPath != null && File.Exists(innerPath)) File.Delete(innerPath); } catch { }
+            }
         }
 
         void SetStatus(string text, float pct)
         {
             if (InvokeRequired) { BeginInvoke(new Action(() => SetStatus(text, pct))); return; }
-            status.Text = text; animTarget = pct;
+            status = text; animTarget = pct; Invalidate(new Rectangle(0, barRect.Y - 34, ClientSize.Width, 50));
         }
 
         // El instalador real va pegado al final de este ejecutable
@@ -347,8 +355,7 @@ namespace XitoSetup
             {
                 var tail = new byte[16];
                 fs.Seek(-16, SeekOrigin.End); fs.Read(tail, 0, 16);
-                var magic = System.Text.Encoding.ASCII.GetString(tail, 8, 8);
-                if (magic != Magic) throw new Exception("El instalador está incompleto (descárgalo de nuevo)");
+                if (System.Text.Encoding.ASCII.GetString(tail, 8, 8) != Magic) throw new Exception("el instalador está incompleto (descárgalo de nuevo)");
                 long len = BitConverter.ToInt64(tail, 0);
                 innerPath = Path.Combine(Path.GetTempPath(), "XitoTruckHub-inner-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".exe");
                 fs.Seek(-16 - len, SeekOrigin.End);
@@ -359,21 +366,20 @@ namespace XitoSetup
                     while (left > 0)
                     {
                         int n = fs.Read(buf, 0, (int)Math.Min(buf.Length, left));
-                        if (n <= 0) throw new Exception("Archivo dañado");
+                        if (n <= 0) throw new Exception("archivo dañado");
                         outFs.Write(buf, 0, n);
                         left -= n;
-                        SetStatus("Preparando la instalación…", 0.08f + 0.22f * (1f - (float)left / len));
+                        SetStatus("Preparando la instalación…", 0.06f + 0.26f * (1f - (float)left / len));
                     }
                 }
             }
         }
 
-        // Opciones que la app aplica al abrirse por primera vez
         void WriteOptions()
         {
             try
             {
-                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Xito Truck Hub");
+                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppName);
                 Directory.CreateDirectory(dir);
                 File.WriteAllText(Path.Combine(dir, "installer-options.json"),
                     "{\"autoStart\":" + (cAuto.Checked ? "true" : "false") + ",\"startMinimized\":false,\"installPlugin\":" + (cPlugin.Checked ? "true" : "false") + "}");
@@ -390,8 +396,7 @@ namespace XitoSetup
                 while (!p.WaitForExit(200))
                 {
                     t += 200;
-                    // Progreso estimado mientras el instalador trabaja (suele tardar 10-30 s)
-                    SetStatus(installedVersion != null ? "Actualizando…" : "Instalando…", 0.35f + Math.Min(0.55f, t / 30000f * 0.55f));
+                    SetStatus(installedVersion != null ? "Actualizando…" : "Instalando…", 0.34f + Math.Min(0.58f, t / 30000f * 0.58f));
                 }
                 return p.ExitCode;
             }
@@ -399,27 +404,25 @@ namespace XitoSetup
 
         string AppExe()
         {
-            var dirs = new[] { installDir, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Xito Truck Hub") };
-            foreach (var d in dirs)
+            foreach (var d in new[] { installDir, Path.Combine(ProgramFiles64(), AppName), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppName), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", AppName) })
             {
                 if (string.IsNullOrEmpty(d)) continue;
-                var exe = Path.Combine(d, "Xito Truck Hub.exe");
+                var exe = Path.Combine(d, AppName + ".exe");
                 if (File.Exists(exe)) return exe;
             }
             return null;
         }
+        // Se abre a través del explorador para que el HUB no herede los permisos de administrador
         void LaunchApp()
         {
             var exe = AppExe(); if (exe == null) return;
-            // Se abre a través del explorador para que no herede los permisos de administrador
-            try { Process.Start(new ProcessStartInfo("explorer.exe", "\"" + exe + "\"") { UseShellExecute = true }); } catch { }
+            try { Process.Start(new ProcessStartInfo("explorer.exe", "\"" + exe + "\"") { UseShellExecute = true }); }
+            catch { try { Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true }); } catch { } }
         }
         void RemoveShortcut()
         {
             foreach (var f in new[] { Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory) })
-            {
-                try { var lnk = Path.Combine(f, "Xito Truck Hub.lnk"); if (File.Exists(lnk)) File.Delete(lnk); } catch { }
-            }
+                try { var lnk = Path.Combine(f, AppName + ".lnk"); if (File.Exists(lnk)) File.Delete(lnk); } catch { }
         }
 
         [STAThread]
