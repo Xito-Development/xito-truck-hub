@@ -10,7 +10,7 @@ const DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const clock = (m) => `${DAYS[Math.floor(m / 1440) % 7]} ${String(Math.floor((m % 1440) / 60)).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
 function dur(s) { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h} h ${m} min` : `${m} min`; }
 
-let routeErr = null, tmpTime = null, near = [], nearT = 0, latch = {}, fin = null, tacho = null, convoy = null, cur = null, live = null, status = null, settings = null, traffic = null, route = null, ses = null, gameSt = null, passed = new Set(), editing = false;
+let onTmp = false, routeErr = null, tmpTime = null, near = [], nearT = 0, latch = {}, fin = null, tacho = null, convoy = null, cur = null, live = null, status = null, settings = null, traffic = null, route = null, ses = null, gameSt = null, passed = new Set(), editing = false;
 const O = () => settings?.overlay || {};
 const mph = () => settings?.units?.speed === 'mph';
 const spd = (k) => (mph() ? k * 0.621371 : k);
@@ -122,7 +122,7 @@ function update() {
   hud.classList.toggle('off', !editing && (!on || paused));
   const pill = $('#pausePill');
   pill.classList.toggle('hidden', !(paused && O().pauseMini !== false) || editing);
-  if (paused) $('#pauseInfo').textContent = live.job?.onJob ? `${live.job.toCity} · ${dist((live.nav?.distance || 0) / 1000)}` : clock(tmpTime ?? live.gameTime);
+  if (paused) $('#pauseInfo').textContent = live.job?.onJob ? `${live.job.toCity} · ${dist((live.nav?.distance || 0) / 1000)}` : clock(clockMins());
   if (!on) return;
   const t = live.truck, n = live.nav, j = live.job;
   const lim = Math.round(n.limit || 0);
@@ -155,7 +155,7 @@ function update() {
   if (ns) ns.textContent = j && j.onJob ? `${j.toCompany} · ${j.cargo}` : '';
   if (ndi) ndi.textContent = j && j.onJob ? dist(n.distance / 1000) : '';
   const nv = $('#navVia'); if (nv && j && j.onJob && !route) { nv.textContent = routeErr ? 'Sin ruta recomendada' : 'Calculando ruta…'; } else if (nv) nv.innerHTML = via ? `Por <span class="via">${esc(via.name)}</span> · ${dist(Math.hypot(via.x - t.x, via.y - t.z) / 1000)}` : j && j.onJob && n.time > 0 ? `≈ ${dur(n.time)}` : '';
-  const nc = $('#navClock'); if (nc) { const now = new Date(); nc.textContent = `${clock(tmpTime ?? live.gameTime)} · ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`; nc.title = 'Hora del juego (o del servidor de TruckersMP) · hora real'; }
+  const nc = $('#navClock'); if (nc) { const now = new Date(); nc.textContent = `${clock(clockMins())} · ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`; nc.title = 'Hora del juego (o del servidor de TruckersMP) · hora real'; }
   const tl = { low: ['Fluido', '#4fd1a1'], moderate: ['Moderado', '#ffb547'], heavy: ['Denso', '#ffc94d'], congested: ['Congestionado', '#ff5a64'] }[traffic?.level];
   const nt = $('#navTraf'); if (nt) nt.innerHTML = tl ? `<span class="tchip" style="background:${tl[1]}22;color:${tl[1]}">${tl[0]}</span>` : '';
   // finanzas
@@ -189,6 +189,13 @@ function update() {
   renderConvoy();
 }
 
+// Minutos del reloj elegido en los ajustes
+function clockMins() {
+  const mode = settings?.clock || 'auto';
+  if (mode === 'tmp' && tmpTime != null) return tmpTime;
+  if (mode === 'auto' && onTmp && tmpTime != null) return tmpTime;
+  return live?.gameTime || 0;
+}
 function renderFinance() {
   const sp = $('#fSpark'); if (!sp || !fin) return;
   const max = Math.max(1, ...fin.days.map((d) => Math.abs(d.net)));
@@ -455,7 +462,7 @@ function connect() {
       traffic = msg.traffic; live = msg.live; status = msg.status; gameSt = msg.game; convoy = msg.convoy; tacho = msg.tacho; applySettings(msg.settings);
       fetch('/api/route/current').then((r) => r.json()).then((r) => { if (r && r.route) route = r.route; }).catch(() => {});
       update();
-    } else if (msg.t === 'tel') { live = msg.d; if (msg.ses) ses = msg.ses; if (msg.tacho) tacho = msg.tacho; cur = msg.cur; tmpTime = msg.tmpTime ?? null; update(); }
+    } else if (msg.t === 'tel') { live = msg.d; if (msg.ses) ses = msg.ses; if (msg.tacho) tacho = msg.tacho; cur = msg.cur; tmpTime = msg.tmpTime ?? null; onTmp = !!msg.onTmp; update(); }
     else if (msg.t === 'convoy') { convoy = msg.d; renderConvoy(); }
     else if (msg.t === 'laliga') laligaPill(msg.d);
     else if (msg.t === 'status') { status = msg.d; update(); }

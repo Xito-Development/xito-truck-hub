@@ -1,9 +1,9 @@
 {
-  "latest": "1.5.2",
+  "latest": "1.5.4",
   "mandatory": false,
   "notes": [
-    "El mini mapa sigue la ruta de tu GPS",
-    "Instalador arreglado: fondo, 100 % y botón Abrir"
+    "Selector de reloj: juego, TruckersMP o real",
+    "Rutas ceñidas a las carreteras"
   ],
   "exe": "https://github.com/Xito-Development/xito-truck-hub/releases/latest/download/XitoTruckHub-Setup.exe",
   "apk": "https://github.com/Xito-Development/xito-truck-hub/releases/latest/download/XitoTruckHub.apk",

@@ -7,17 +7,18 @@ const GAMES = {
   promods: { url: 'https://map-cdn.krashnz.com/ets2map/promods/v2.80', off: { x: -145, y: -18 }, r: { xMin: -144, xMax: 206, yMin: -166, yMax: 130 } },
   ats: { url: 'https://map-cdn.krashnz.com/ets2map/ats-promods/v1.6.3', off: { x: -18, y: -18 }, r: { xMin: -122, xMax: 39, yMin: -88, yMax: 100 } }
 };
-const STEP = 27, OFF = 13000, SIZE = 27000; // teselas de nivel 4 (27 km de lado)
+// Niveles de tesela: [nivel, paso entre índices, desplazamiento, lado en unidades]
+const LEVELS = { 3: [3, 9, 4000, 9000], 4: [4, 27, 13000, 27000] };
 // Misma corrección de escala de Reino Unido que usa el mapa de TruckersMP
 const tf = (game, x, y) => (game === 'ets2' && y < -0.14 * x - 10040 && x < -30100 ? [0.75 * x - 8337, 0.75 * y - 1000] : [x, y]);
 
 const tileCache = new Map();
-async function tile(game, a, i) {
-  const key = `${game}:${a}:${i}`;
+async function tile(game, a, i, lv) {
+  const key = `${game}:${a}:${i}:${lv}`;
   if (tileCache.has(key)) return tileCache.get(key);
   const p = (async () => {
     try {
-      const r = await fetch(`${GAMES[game].url}/${a}_${i}_4.png`, { signal: AbortSignal.timeout(20000) });
+      const r = await fetch(`${GAMES[game].url}/${a}_${i}_${lv}.png`, { signal: AbortSignal.timeout(20000) });
       if (!r.ok || !(r.headers.get('content-type') || '').includes('png')) return null;
       const png = PNG.sync.read(Buffer.from(await r.arrayBuffer()));
       return { w: png.width, h: png.height, data: png.data };
@@ -59,15 +60,19 @@ async function buildGrid(game, A, B) {
   const margin = Math.max(6000, span * 0.25);
   const x0 = Math.min(A[0], B[0]) - margin, x1 = Math.max(A[0], B[0]) + margin;
   const y0 = Math.min(A[1], B[1]) - margin, y1 = Math.max(A[1], B[1]) + margin;
-  let C = 100;
-  while (((x1 - x0) / C) * ((y1 - y0) / C) > 2.2e6) C *= 1.5;
+  // Se usan teselas detalladas siempre que el trayecto no sea enorme: así la ruta se ciñe a las carreteras
+  const tilesAt = (step, sz) => Math.ceil((x1 - x0 + sz) / (step * 1000)) * Math.ceil((y1 - y0 + sz) / (step * 1000));
+  const useFine = tilesAt(LEVELS[3][1], LEVELS[3][3]) <= 110;
+  const [lv, STEP, OFF, SIZE] = useFine ? LEVELS[3] : LEVELS[4];
+  let C = useFine ? 60 : 70;
+  while (((x1 - x0) / C) * ((y1 - y0) / C) > 4.5e6) C *= 1.4;
   const W = Math.ceil((x1 - x0) / C), H = Math.ceil((y1 - y0) / C);
   const road = new Uint8Array(W * H);
   // Teselas que tocan el área
   const idx = (min, max, off, lo, hi) => { const out = []; for (let a = min; a <= max; a += STEP) { const c = 1000 * a + off + OFF; if (c + SIZE / 2 >= lo && c - SIZE / 2 <= hi) out.push(a); } return out; };
   const as = idx(g.r.xMin, g.r.xMax, g.off.x, x0, x1), is = idx(g.r.yMin, g.r.yMax, g.off.y, y0, y1);
-  if (as.length * is.length > 64) throw new Error('La ruta es demasiado larga para calcularla');
-  const tiles = await Promise.all(as.flatMap((a) => is.map(async (i) => ({ a, i, t: await tile(game, a, i) }))));
+  if (as.length * is.length > 180) throw new Error('La ruta es demasiado larga para calcularla');
+  const tiles = await Promise.all(as.flatMap((a) => is.map(async (i) => ({ a, i, t: await tile(game, a, i, lv) }))));
   for (const { a, i, t } of tiles) {
     if (!t) continue;
     const tx = 1000 * a + g.off.x + OFF - SIZE / 2, ty = 1000 * i + g.off.y + OFF - SIZE / 2;
@@ -85,7 +90,16 @@ async function buildGrid(game, A, B) {
       }
     }
   }
-  return { x0, y0, C, W, H, road };
+  // Se engordan las carreteras un poco para cerrar los huecos de los cruces y los trazos finos
+  const fat = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (!road[y * W + x]) continue;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const X = x + dx, Y = y + dy;
+      if (X >= 0 && Y >= 0 && X < W && Y < H) fat[Y * W + X] = 1;
+    }
+  }
+  return { x0, y0, C, W, H, road: fat };
 }
 
 function snap(G, x, y) {
@@ -160,7 +174,7 @@ async function route({ game = 'ets2', from, to, heat = [], cities = [], hot = []
   }
   const norm = hmax > 0 ? 1 / Math.min(hmax, 40) : 0;
   const s = snap(G, A[0], A[1]), t = snap(G, B[0], B[1]);
-  const OFFROAD = 30, ALPHA = 5;
+  const OFFROAD = 400, ALPHA = 5; // salirse de la carretera sale carísimo: solo para ferris y huecos del mapa
   const wFast = (k) => (G.road[k] ? 1 : OFFROAD);
   const wPop = (k) => (G.road[k] ? 1 / (1 + ALPHA * Math.min(1, hv[k] * norm)) : OFFROAD);
   const toPts = (p) => p.map((k) => [G.x0 + ((k % G.W) + 0.5) * G.C, G.y0 + (((k / G.W) | 0) + 0.5) * G.C]);
@@ -190,7 +204,7 @@ async function route({ game = 'ets2', from, to, heat = [], cities = [], hot = []
   if (!popular && !fastest) throw new Error('No se encontró un camino por carretera');
   // Rutas alternativas para adivinar cuál sigue el GPS del juego (se elige la que cuadra con su distancia)
   const alts = [];
-  if (opts.alternatives) {
+  if (opts.alternatives && G.W * G.H < 1.6e6) {
     // Alternativas de verdad: se penalizan las carreteras ya usadas por las rutas anteriores
     const pen = new Uint8Array(G.W * G.H);
     const mark = (path) => { for (const k of path) { const x = k % G.W, y = (k / G.W) | 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < G.W && Y < G.H) pen[Y * G.W + X] = 1; } } };

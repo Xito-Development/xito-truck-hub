@@ -351,7 +351,7 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
   tracker.on('telemetry', (t) => {
     const now = Date.now(); if (now - lastTel < 190) return; lastTel = now;
     const c = tracker.cur;
-    broadcast({ t: 'tel', d: t, cur: c ? { id: c.id, drivenKm: c.drivenKm, fines: c.fines.length, startedAt: c.startedAt, startDistance: c.startDistance, score: tracker.liveScore() } : null, ses: tracker.session, tacho: tacho.state(), tmpTime: tracker.tmpTime ? tracker.tmpTime() : null });
+    broadcast({ t: 'tel', d: t, cur: c ? { id: c.id, drivenKm: c.drivenKm, fines: c.fines.length, startedAt: c.startedAt, startDistance: c.startDistance, score: tracker.liveScore() } : null, ses: tracker.session, tacho: tacho.state(), tmpTime: tracker.tmpTime ? tracker.tmpTime() : null, onTmp: tracker.onTmp ? tracker.onTmp() : false });
   });
   tracker.on('ev', (e) => broadcast({ t: 'ev', d: e }));
   tracker.on('job', (j) => broadcast({ t: 'job', d: j }));

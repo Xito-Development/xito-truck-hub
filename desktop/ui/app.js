@@ -279,7 +279,7 @@ function onHubMsg(msg) {
     S.status = msg.status || S.status; S.live = msg.live; S.settings = msg.settings; S.cur = msg.current; S.traffic = msg.traffic;
     applyTheme(); emit('status'); emit('tel'); emit('traffic');
   } else if (msg.t === 'tel') {
-    S.live = msg.d; S.curLive = msg.cur; S.tmpTime = msg.tmpTime ?? null; if (msg.ses) S.ses = msg.ses; if (msg.tacho) S.tacho = msg.tacho; emit('tel');
+    S.live = msg.d; S.curLive = msg.cur; S.tmpTime = msg.tmpTime ?? null; S.onTmp = !!msg.onTmp; if (msg.ses) S.ses = msg.ses; if (msg.tacho) S.tacho = msg.tacho; emit('tel');
   } else if (msg.t === 'status') {
     S.status = msg.d; emit('status');
   } else if (msg.t === 'ev') {
@@ -701,7 +701,7 @@ VIEWS.cabina = (root) => {
     const t = d.truck, j = d.job, n = d.nav;
     $('#truckName').textContent = [t.brand, t.name].filter(Boolean).join(' ') || 'Cabina';
     $('#truckSub').textContent = [t.plate, d.trailer?.attached ? `Remolque ${d.trailer.name || ''}`.trim() : 'Sin remolque', d.paused ? 'Pausa' : ''].filter(Boolean).join(' · ');
-    $('#clock').textContent = gameClock(S.tmpTime ?? d.gameTime);
+    $('#clock').textContent = hubClock(d);
     $('#rest').textContent = d.restStop > 0 ? `Descanso en ${dur(d.restStop * 60)}` : 'Descanso: ya';
     $('#rest').className = 'pill' + (d.restStop > 0 && d.restStop <= 60 ? ' warn' : '');
     const lim = Math.round(n.limit || 0);
@@ -811,6 +811,14 @@ function nextVia() {
 }
 const gearTxt = (g) => (g > 0 ? String(g) : g < 0 ? 'R' + Math.abs(g) : 'N');
 // Intermitentes y emergencia: se mantienen activos un momento para que el parpadeo sea regular
+// Qué reloj se muestra: automático (TruckersMP si estás en TMP), del juego, de TMP o real
+function hubClock(d) {
+  const mode = S.settings?.clock || 'auto';
+  if (mode === 'real') return new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  if (mode === 'tmp' && S.tmpTime != null) return gameClock(S.tmpTime);
+  if (mode === 'auto' && S.onTmp && S.tmpTime != null) return gameClock(S.tmpTime);
+  return gameClock(d?.gameTime ?? 0);
+}
 const lampLatch = {};
 function lampHold(k, v) { const n = Date.now(); if (v) lampLatch[k] = n; return n - (lampLatch[k] || 0) < 1200; }
 // Marcha como la muestra el salpicadero del juego: A12 (automática), 8 (manual), R1, N
@@ -842,7 +850,7 @@ async function openDash() {
   const upd = () => {
     const d = S.live; if (!d || !d.sdk) return;
     const t = d.truck, n = d.nav, j = d.job, lim = Math.round(n.limit || 0);
-    $('#dClock').textContent = gameClock(S.tmpTime ?? d.gameTime);
+    $('#dClock').textContent = hubClock(d);
     const tf = S.traffic, TL = tf ? (TRAF[tf.level] || TRAF.low) : null; $('#dTraf').textContent = TL ? `Tráfico ${TL[0].toLowerCase()}` : ''; $('#dTraf').className = 'pill ' + (TL ? TL[1] : 'hidden');
     $('#dLim').textContent = lim > 0 ? lim : '–'; $('#dLim').classList.toggle('none', lim <= 0);
     $('#dSpeedBox').classList.toggle('over', lim > 0 && t.speed > lim + 3);
@@ -1571,6 +1579,7 @@ function prefsHtml() {
     ${sw('apMotion', a.motion !== false, 'Animaciones y transiciones')}
     ${sw('apGlow', a.glow !== false, 'Brillo de fondo')}
     ${IS_CAP ? '' : sw('apNav', !!a.compactNav, 'Menú lateral compacto', 'Solo iconos')}
+    ${S.connected ? `<div class="setting"><div><b>Reloj</b><small id="clkPrev">Elige el que coincida con el juego</small></div>${segs('apClock', S.settings?.clock || 'auto', [['auto', 'Automático'], ['game', 'Del juego'], ['tmp', 'TruckersMP'], ['real', 'Real']])}</div>` : ''}
     <div class="setting"><div><b>Idioma</b></div><select class="input" id="apLang" style="width:auto">${Object.entries(I18N.LANGS).map(([k, v]) => `<option value="${k}" ${k === I18N.lang ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
     <div class="setting"><div><b>Pantalla al abrir</b></div><select class="input" id="apStart" style="width:auto">${NAV.map((n) => `<option value="${n.id}" ${n.id === (a.startPage || 'cabina') ? 'selected' : ''}>${n.label}</option>`).join('')}</select></div>
   </section>
@@ -1660,6 +1669,11 @@ function bindPrefs(root) {
   tog('apGlow', (v) => setPref('appearance', { glow: v }));
   tog('apNav', (v) => setPref('appearance', { compactNav: v }));
   $('#apStart').onchange = (e) => setPref('appearance', { startPage: e.target.value });
+  if ($('#apClock')) {
+    $('#apClock').onclick = (e) => { const c = e.target.closest('[data-v]'); if (!c) return; $$('#apClock [data-v]').forEach((x) => x.setAttribute('aria-pressed', x === c)); setPref('clock', c.dataset.v); };
+    const prev = () => { const p = $('#clkPrev'); if (!p) return clearInterval(iv); const g = S.live ? gameClock(S.live.gameTime) : '—'; const t = S.tmpTime != null ? gameClock(S.tmpTime) : '—'; const r = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }); p.textContent = `Juego ${g} · TruckersMP ${t} · Real ${r}`; };
+    const iv = setInterval(prev, 2000); prev();
+  }
   $('#apLang').onchange = (e) => { const l = e.target.value; LS.set('language', l); I18N.set(l); if (S.connected && !IS_CAP) post('/api/settings', { language: l }).then((x) => (S.settings = x)).catch(() => {}); };
   seg('uSpeed', (v) => setPref('units', { speed: v })); seg('uTemp', (v) => setPref('units', { temp: v }));
   seg('uVol', (v) => setPref('units', { volume: v })); seg('uW', (v) => setPref('units', { weight: v }));
@@ -1695,8 +1709,16 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.5.2';
+const APP_VERSION = '1.5.4';
 const CHANGELOG = {
+  '1.5.4': [
+    'Nuevo selector de reloj en Ajustes (Automático, Del juego, TruckersMP o Real) con una vista previa de las tres horas para elegir la que coincide',
+    'La hora de TruckersMP se consulta siempre, no solo cuando el HUB detecta que estás en TMP'
+  ],
+  '1.5.3': [
+    'Las rutas ya no cortan por el campo: se calculan con el mapa a mucho más detalle y ceñirse a las carreteras',
+    'Salirse de la carretera solo se permite en ferris y huecos reales del mapa'
+  ],
   '1.5.2': [
     'El mini mapa adivina la ruta de tu GPS: compara varias rutas posibles con la distancia que marca el GPS del juego y dibuja la que coincide, y la corrige mientras conduces',
     'Instalador: arreglados los fallos del fondo, la barra llega al 100 % y el botón «Abrir» abre el HUB de verdad'

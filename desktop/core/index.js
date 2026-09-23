@@ -92,14 +92,9 @@ function start({ dataDir, resourcesDir, uiDir, port = 25580, hooks = {}, version
   const tmpClock = { gt: null, at: 0 };
   const syncClock = async () => { try { const r = await require('./tmp').gameTime(); const gt = r?.game_time ?? r; if (typeof gt === 'number') { tmpClock.gt = gt; tmpClock.at = Date.now(); } } catch {} };
   syncClock(); const clockTimer = setInterval(syncClock, 5 * 60000);
-  tracker.tmpTime = () => {
-    const lt = tracker.live;
-    if (lt && lt.mpOffset) return Math.floor((lt.gameTime || 0) + lt.mpOffset); // Convoy (multijugador oficial)
-    if (tmpClock.gt == null) return null;
-    const onTmp = !!(traffic.me || game.state?.tmp);
-    if (!onTmp) return null;
-    return Math.floor(tmpClock.gt + ((Date.now() - tmpClock.at) / 60000) * 6);
-  };
+  // Hora estimada del servidor de TruckersMP (siempre que se haya podido consultar)
+  tracker.tmpTime = () => (tmpClock.gt == null ? null : Math.floor(tmpClock.gt + ((Date.now() - tmpClock.at) / 60000) * 6));
+  tracker.onTmp = () => !!(traffic.me || game.state?.tmp || tracker.live?.mpOffset);
   const srv = createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir, version, traffic, discord, nav, game, relayRef, tacho, vtcBot, convoy, tmpWatch, laliga });
   relayRef.relay = new Relay(store, (m, p, b) => srv.call(m, p, b),
     async () => ({ t: 'hello', status: tracker.status, live: tracker.live, current: store.data.current, settings: store.data.settings, traffic: traffic.nearby, game: game.state }));
