@@ -65,7 +65,7 @@
     let game = cfg.game || (String(S.live?.game).toLowerCase() === 'ats' ? 'ats' : 'ets2');
     const G = () => GAMES[game];
     let cam = { x: G().cam.x, y: G().cam.y }, ppu = 0.02, dirty = true, raf = 0;
-    let prevPos = new Map(), playersAt = 0, smoothPos = null, vtcMates = [], players = [], me = null, servers = [], locs = [], trail = [], friends = [], jobPath = [], hover = null, heat = [], heatMax = 1, routeView = 'popular', planning = false;
+    let animDur = 1500, prevPos = new Map(), playersAt = 0, smoothPos = null, vtcMates = [], players = [], me = null, servers = [], locs = [], trail = [], friends = [], jobPath = [], hover = null, heat = [], heatMax = 1, routeView = 'popular', planning = false;
 
     root.innerHTML = `<div class="head map-head" style="margin-bottom:14px"><div><h1>Mapa</h1><p id="mapSub">TruckersMP en directo</p></div>
       <div class="row wrap map-ctl"><div class="chips" id="mapGame">${Object.entries(GAMES).map(([k, g]) => `<button class="chip" data-g="${k}" aria-pressed="${k === game}">${g.name}</button>`).join('')}</div>
@@ -209,7 +209,7 @@
       }
       // jugadores (se mueven suavemente entre actualizaciones)
       if (cfg.layer) {
-        const k = Math.min(1, (performance.now() - playersAt) / 3000);
+        const k = Math.min(1, (performance.now() - playersAt) / animDur);
         if (k < 1) dirty = true;
         ctx.fillStyle = C.getPropertyValue('--accent2'); ctx.strokeStyle = C.getPropertyValue('--bg'); ctx.lineWidth = 1.5;
         const r = ppu > 0.08 ? 7 : ppu > 0.03 ? 5 : 2;
@@ -411,7 +411,7 @@
     // Cada jugador conserva siempre su dato más reciente: el mapa completo llega con retraso y, si se
     // mezclaba sin más con la zona en tiempo real, los camiones saltaban hacia atrás y hacia delante
     function setPlayers(list, full) {
-      const now = performance.now(), k = Math.min(1, (now - playersAt) / 3000);
+      const now = performance.now(), k = Math.min(1, (now - playersAt) / animDur);
       const old = new Map(players.map((p) => [p[3], p]));
       // posición que se está viendo ahora mismo (a mitad de animación)
       const shown = new Map(players.map((p) => { const pr = prevPos.get(p[3]); return [p[3], pr ? [pr[0] + (p[0] - pr[0]) * k, pr[1] + (p[1] - pr[1]) * k] : [p[0], p[1]]]; }));
@@ -426,6 +426,8 @@
         // solo se anima si el salto es pequeño (un ferry o un teletransporte aparecen directamente)
         if (s0 && Math.hypot(p[0] - s0[0], p[1] - s0[1]) < 1500) prevPos.set(id, s0);
       }
+      // La animación dura lo mismo que el tiempo entre actualizaciones: movimiento continuo, sin parones
+      animDur = Math.max(700, Math.min(3000, now - playersAt));
       players = [...next.values()]; playersAt = now; dirty = true;
     }
     // Jugadores de la zona que estás viendo, casi en tiempo real (cada 3 s)
@@ -595,7 +597,7 @@
     if (cfg.follow) centerMe();
     loadLocs(); loadPlayers().then(loadHeat); loadTrail(); loadFriends(); renderRoute();
     if (S.live?.job?.onJob && !S.navRoute) loadRoute();
-    loadVtc(); const iv5 = setInterval(loadVtc, 45000); const iv6 = setInterval(loadArea, 3000); const iv = setInterval(loadPlayers, 12000), iv2 = setInterval(loadFriends, 30000), iv3 = setInterval(loadHeat, 20000);
+    loadVtc(); const iv5 = setInterval(loadVtc, 45000); const iv6 = setInterval(loadArea, 1500); const iv = setInterval(loadPlayers, 12000), iv2 = setInterval(loadFriends, 30000), iv3 = setInterval(loadHeat, 20000);
     let lastJobKey = null;
     const offs = [on('tel', onTel), on('theme', () => (dirty = true)), on('convoy', () => (dirty = true)), on('route', () => { dirty = true; renderRoute(); if (S.navRoute?.rerouted) toast('Ruta recalculada', 'Te habías salido de la ruta recomendada.', 'mapa', 'alt'); }),
       on('job', (d) => { if (d.phase !== 'started') { S.navRoute = null; renderRoute(); dirty = true; } }),

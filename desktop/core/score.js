@@ -20,14 +20,19 @@ function sample(st, t, dt) {
       if (over > st.maxOver) st.maxOver = over;
     }
   }
-  if (st.lastSpeed != null && dt > 0.05 && dt < 1 && !t.paused) {
-    const acc = (tr.speed - st.lastSpeed) / dt; // km/h por segundo
-    if (now - st.lastHarsh > 3000) {
-      if (acc < -14 && st.lastSpeed > 25) { st.harshBrakes++; st.lastHarsh = now; }
-      else if (acc > 9) { st.harshAccel++; st.lastHarsh = now; }
+  // La aceleración se mide en ventanas de al menos 0,4 s: con 20 lecturas por segundo el ruido daría falsos frenazos
+  if (st.lastSpeed == null || t.paused) { st.lastSpeed = tr.speed; st.lastSpeedAt = now; return; }
+  const win = (now - (st.lastSpeedAt || now)) / 1000;
+  if (win >= 0.4) {
+    if (win < 2) {
+      const acc = (tr.speed - st.lastSpeed) / win; // km/h por segundo
+      if (now - st.lastHarsh > 3000) {
+        if (acc < -14 && st.lastSpeed > 25) { st.harshBrakes++; st.lastHarsh = now; }
+        else if (acc > 9) { st.harshAccel++; st.lastHarsh = now; }
+      }
     }
+    st.lastSpeed = tr.speed; st.lastSpeedAt = now;
   }
-  st.lastSpeed = tr.speed;
 }
 function compute(st, { fines = 0, cargoDamage = 0 } = {}) {
   const pct = st.driveSec > 30 ? (st.speedingSec / st.driveSec) * 100 : 0;

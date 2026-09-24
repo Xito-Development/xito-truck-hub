@@ -342,16 +342,26 @@ function createServer({ port, uiDir, store, tracker, bridge, hooks, resourcesDir
   }, 20000);
   server.on('close', () => clearInterval(beat));
 
+  function broadcastTel(msg) {
+    relayRef.relay?.publish(msg);
+    const s = JSON.stringify(msg), now = Date.now();
+    for (const c of wss.clients) {
+      if (c.readyState !== 1 || c.bufferedAmount > 5e5) continue;
+      if (!c.isLocal) { if (now - (c.lastTel || 0) < 190) continue; c.lastTel = now; }
+      c.send(s);
+    }
+  }
   function broadcast(msg) {
     relayRef.relay?.publish(msg);
     const s = JSON.stringify(msg);
     for (const c of wss.clients) if (c.readyState === 1 && c.bufferedAmount < 1e6) c.send(s);
   }
+  // Telemetría en tiempo real: 20 veces por segundo en este PC (HUB y overlay) y 5 al móvil por la Wi‑Fi
   let lastTel = 0;
   tracker.on('telemetry', (t) => {
-    const now = Date.now(); if (now - lastTel < 190) return; lastTel = now;
+    const now = Date.now(); if (now - lastTel < 45) return; lastTel = now;
     const c = tracker.cur;
-    broadcast({ t: 'tel', d: t, cur: c ? { id: c.id, drivenKm: c.drivenKm, fines: c.fines.length, startedAt: c.startedAt, startDistance: c.startDistance, score: tracker.liveScore() } : null, ses: tracker.session, tacho: tacho.state(), tmpTime: tracker.tmpTime ? tracker.tmpTime() : null, onTmp: tracker.onTmp ? tracker.onTmp() : false });
+    broadcastTel({ t: 'tel', d: t, cur: c ? { id: c.id, drivenKm: c.drivenKm, fines: c.fines.length, startedAt: c.startedAt, startDistance: c.startDistance, score: tracker.liveScore() } : null, ses: tracker.session, tacho: tacho.state(), tmpTime: tracker.tmpTime ? tracker.tmpTime() : null, onTmp: tracker.onTmp ? tracker.onTmp() : false });
   });
   tracker.on('ev', (e) => broadcast({ t: 'ev', d: e }));
   tracker.on('job', (j) => broadcast({ t: 'job', d: j }));

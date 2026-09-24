@@ -1,6 +1,6 @@
 {
   "name": "xito-truck-hub-mobile",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "private": true,
   "scripts": {
     "copy-ui": "node scripts/copy-ui.js",

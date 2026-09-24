@@ -37,7 +37,7 @@ public static class Program
             SCSSdkTelemetry tel = null;
             try
             {
-                tel = new SCSSdkTelemetry(200);
+                tel = new SCSSdkTelemetry(50); // 20 lecturas por segundo
                 if (tel.Error != null) { tel.Dispose(); Status("waiting", "Juego no detectado"); Thread.Sleep(3000); continue; }
                 last = null; lastStamp = 0; lastChange = DateTime.Now;
                 Hook(tel);

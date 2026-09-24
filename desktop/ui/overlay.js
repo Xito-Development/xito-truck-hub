@@ -313,7 +313,7 @@ function drawMinimap() {
     ctx.strokeStyle = acc; ctx.lineWidth = 4; ctx.stroke();
   }
   // Jugadores de TruckersMP alrededor
-  if (performance.now() - nearT > 3000) {
+  if (performance.now() - nearT > 1500) {
     nearT = performance.now();
     const R = Math.max((O().playerRange ?? 1.5) * 1000, Math.min(20000, (Math.hypot(W, H) / ppu) * 0.7));
     fetch(`/api/map/area?x1=${t.x - R}&y1=${t.z - R}&x2=${t.x + R}&y2=${t.z + R}&server=auto`).then((r) => r.json()).then((r) => { const maxD = (O().playerRange ?? 1.5) * 1000;

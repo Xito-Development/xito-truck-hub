@@ -715,9 +715,11 @@ VIEWS.cabina = (root) => {
     $('#cruise').textContent = t.cruise ? `${Math.round(U.speed(t.cruiseSpeed))} ${U.speedUnit()}` : 'Apagado';
     $('#range').textContent = U.dist(t.fuelRange, 0);
     $('#odo').textContent = U.dist(t.odometer, 0);
-    renderTacho();
+    // Con 20 lecturas por segundo, lo que no cambia a cada instante se repinta como mucho 2-3 veces por segundo
+    const slow = Date.now() - (S._slowAt || 0) > 400; if (slow) S._slowAt = Date.now();
+    if (slow) renderTacho();
     const ses = S.ses, sb = $('#sesBody');
-    if (ses && sb) {
+    if (slow && ses && sb) {
       $('#sesTime').textContent = dur(ses.driveSec);
       sb.innerHTML = `<div class="kpi"><span class="v" style="font-size:26px">${U.dist(ses.km, 0)}</span><span class="l">Recorridos</span></div>
         <div class="kpi"><span class="v" style="font-size:26px">${n0(ses.jobs)}</span><span class="l">Entregas</span></div>
@@ -741,9 +743,9 @@ VIEWS.cabina = (root) => {
       $('#jKm').textContent = n1(U.distN(S.curLive?.drivenKm || 0));
       $('#jDead').textContent = j.deadline > 0 ? `Entrega antes de ${gameClock(j.deadline)}` : 'Sin límite de tiempo';
       const sc = S.curLive?.score, se = $('#jScore');
-      if (se) se.innerHTML = sc ? `<span class="grade g-${sc.grade.replace('+', 'p')}">${sc.grade}</span><div><b>Nota de conducción: ${sc.score}</b><small>${sc.mode === 'real' ? 'Viaje Real' : 'Modo Carrera'}${sc.penalties.length ? ' · ' + esc(sc.penalties.slice(0, 2).map((p) => `${p.name} −${p.points}`).join(' · ')) : ' · sin penalizaciones'}</small></div>` : '';
+      if (se && slow) se.innerHTML = sc ? `<span class="grade g-${sc.grade.replace('+', 'p')}">${sc.grade}</span><div><b>Nota de conducción: ${sc.score}</b><small>${sc.mode === 'real' ? 'Viaje Real' : 'Modo Carrera'}${sc.penalties.length ? ' · ' + esc(sc.penalties.slice(0, 2).map((p) => `${p.name} −${p.points}`).join(' · ')) : ' · sin penalizaciones'}</small></div>` : '';
       const rh = $('#jRoute'), nv = nextVia();
-      if (rh) {
+      if (rh && slow) {
         const via = (S.navRoute?.popular?.via || []).map((v) => v.name);
         rh.classList.toggle('hidden', !S.navRoute);
         if (!S.navRoute && S.routeError && S.live?.job?.onJob) { rh.classList.remove('hidden'); rh.innerHTML = `${ic('trafico')}<span><b>Sin ruta recomendada</b>${esc(S.routeError)}</span>${ic('mapa')}`; }
@@ -855,7 +857,7 @@ async function openDash() {
     $('#dLim').textContent = lim > 0 ? lim : '–'; $('#dLim').classList.toggle('none', lim <= 0);
     $('#dSpeedBox').classList.toggle('over', lim > 0 && t.speed > lim + 3);
     $('#dGear').textContent = gearLabel(t);
-    $('#dJob').innerHTML = j && j.onJob ? `<b>${esc(j.toCity)}</b><span>${U.dist(n.distance / 1000)} · ≈ ${dur(n.time)}</span>` : '<span>Sin trabajo activo</span>';
+    if (Date.now() - (S._dashSlow || 0) > 400) { S._dashSlow = Date.now(); $('#dJob').innerHTML = j && j.onJob ? `<b>${esc(j.toCity)}</b><span>${U.dist(n.distance / 1000)} · ≈ ${dur(n.time)}</span>` : '<span>Sin trabajo activo</span>'; }
     $('#dFuel').style.width = clamp(t.fuel / (t.fuelCap || 1), 0, 1) * 100 + '%';
     const L = t.lights || {}, dk = { blinkLeft: L.left && !L.hazard, blinkRight: L.right && !L.hazard, lights: L.low, hazard: L.hazard };
     $$('[data-dk]').forEach((b) => b.classList.toggle('on', !!dk[b.dataset.dk]));
@@ -1709,8 +1711,16 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.5.4';
+const APP_VERSION = '1.5.5';
 const CHANGELOG = {
+  '1.5.5': [
+    'Telemetría 4 veces más rápida: 20 lecturas por segundo en el HUB y el overlay (antes 5)',
+    'Móvil: 5 por segundo por la Wi‑Fi y el doble que antes en remoto',
+    'Mapa: jugadores cada 1,5 s y movimiento continuo, sin parones entre actualizaciones',
+    'Mini mapa del overlay: jugadores cercanos el doble de rápido',
+    'La nota de conducción ya no cuenta frenazos falsos por las lecturas más rápidas',
+    'La cabina y el salpicadero consumen menos: lo que no cambia al instante se repinta menos veces'
+  ],
   '1.5.4': [
     'Nuevo selector de reloj en Ajustes (Automático, Del juego, TruckersMP o Real) con una vista previa de las tres horas para elegir la que coincide',
     'La hora de TruckersMP se consulta siempre, no solo cuando el HUB detecta que estás en TMP'

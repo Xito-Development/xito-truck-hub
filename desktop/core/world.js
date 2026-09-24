@@ -47,7 +47,7 @@ function locations(game = 'ets2') {
 // Jugadores de una zona concreta (tiempo real, mucho más ligero que el mapa completo)
 async function area({ x1, y1, x2, y2, server }) {
   const q = `x1=${Math.round(Math.min(x1, x2))}&y1=${Math.round(Math.max(y1, y2))}&x2=${Math.round(Math.max(x1, x2))}&y2=${Math.round(Math.min(y1, y2))}&server=${server || 2}`;
-  return cached('area-' + q, 2500, async () => {
+  return cached('area-' + q, 1200, async () => {
     const r = await get('https://tracker.ets2map.com/v3/area?' + q, 8000);
     const j = await r.json();
     return (j.Data || []).map((p) => [p.X, p.Y, p.Heading, p.MpId, p.Name, p.Time || 0]);

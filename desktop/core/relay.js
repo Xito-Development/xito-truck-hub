@@ -70,7 +70,7 @@ class Relay {
   publish(msg) {
     if (!this.client || this.state !== 'online') return;
     if (msg.t !== 'pcup' && Date.now() - this.lastClient > 60000) return;
-    if (msg.t === 'tel') { const now = Date.now(); if (now - this.lastTel < 950) return; this.lastTel = now; }
+    if (msg.t === 'tel') { const now = Date.now(); if (now - this.lastTel < 480) return; this.lastTel = now; }
     try { this.client.publish(`${this.k.topic}/pc`, enc(this.k.key, msg), { qos: 0 }); } catch {}
   }
 }
