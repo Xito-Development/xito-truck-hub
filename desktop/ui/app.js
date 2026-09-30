@@ -170,6 +170,7 @@ async function directJson(url, timeout = 15000) {
   }
   if (body && typeof body === 'object') return body;
   const text = String(body || '');
+  if (/^\s*</.test(text) && /laliga|bloquead|orden judicial|blocked/i.test(text)) throw new Error('Tu operador está bloqueando TruckersMP por el fútbol (LaLiga). Volverá cuando acabe el partido.');
   if (/^\s*</.test(text)) throw new Error(S.laliga?.blocked ? 'Bloqueado por LaLiga (hay fútbol). Vuelve a intentarlo cuando termine.' : status === 404 ? 'No encontrado' : 'TruckersMP no responde desde esta red. Si hay fútbol, puede ser por los bloqueos de LaLiga; si no, prueba en un rato.');
   if (status >= 400 && !text) throw new Error(`Error ${status}`);
   return JSON.parse(text);
@@ -1262,7 +1263,7 @@ VIEWS.trafico = (root) => {
     <p class="muted" style="font-size:13px;margin-top:14px">Datos de traffic.krashnz.com y del mapa en vivo de TruckersMP. El juego no permite cambiar la ruta del GPS desde fuera: el HUB te avisa de las zonas concurridas y te sugiere las más populares.</p>`;
   const near = () => {
     const n = S.traffic, el = $('#near'); if (!el) return;
-    if (!n) { el.innerHTML = `<h2>A tu alrededor</h2><div class="empty" style="padding:18px 0">${ic('trafico')}<b>Sin datos</b>Conduce en TruckersMP para ver el tráfico cercano.</div>`; return; }
+    if (!n) { el.innerHTML = `<h2>A tu alrededor</h2><div class="empty" style="padding:18px 0">${ic('trafico')}<b>Sin datos</b>${S.connected ? 'Conduce en TruckersMP para ver el tráfico cercano.' : 'Conecta con el PC para ver el tráfico que tienes alrededor.'}</div>`; return; }
     const L = TRAF[n.level] || TRAF.low;
     el.innerHTML = `<h2>A tu alrededor ${n.server ? `<span class="pill">${esc(n.server.name)}</span>` : ''}</h2>
       <div class="kpi"><span class="v ${L[1]}">${L[0]}</span><span class="l">${n.around} jugadores a menos de 700 m</span></div>
@@ -1273,7 +1274,7 @@ VIEWS.trafico = (root) => {
     const s = servers.find((x) => x.url === sel) || servers[0]; if (!s) return;
     $('#hotAll').innerHTML = sk(200);
     try {
-      const d = await api(`/api/traffic/server?game=${s.game}&url=${s.url}`);
+      const d = S.connected ? await api(`/api/traffic/server?game=${s.game}&url=${s.url}`) : await directJson(`https://traffic.krashnz.com/api/v4/server/${s.game}/${s.url}`);
       const locs = (d.traffic || []).flatMap((c) => c.locations.map((l) => ({ ...l, country: c.country }))).filter((l) => l.players > 0).sort((a, b) => b.players - a.players);
       $('#hotAll').innerHTML = locs.length ? `<div class="list">${locs.slice(0, 60).map((l) =>
         `<div class="item"><span class="ico ${l.severity === 'congested' ? 'bad' : ''}" style="color:${esc(l.severityColour)}">${ic(l.type === 'road' ? 'truck' : 'vtc')}</span>
@@ -1283,17 +1284,21 @@ VIEWS.trafico = (root) => {
   };
   const load = async () => {
     near();
-    if (!S.connected) { $('#hotTop').innerHTML = notConnectedCard(); return; }
     try {
-      servers = (await api('/api/traffic')).servers || [];
+      // Sin PC se consulta directamente el servicio de tráfico (funciona igual desde el móvil)
+      servers = (S.connected ? await api('/api/traffic') : await directJson('https://traffic.krashnz.com/api/v4/traffic')).servers || [];
       if (!sel) sel = S.traffic?.server?.url || servers[0]?.url;
       const top = servers.flatMap((s) => (s.traffic || []).map((t) => ({ ...t, srv: s.longName }))).sort((a, b) => b.players - a.players).slice(0, 8);
       $('#hotTop').innerHTML = `<h2>Lo más concurrido ahora</h2><div class="list">${top.map((l) =>
         `<div class="item"><span class="ico" style="color:${esc(l.severityColour)}">${ic(l.type === 'road' ? 'truck' : 'vtc')}</span><span class="grow"><span class="t">${esc(l.name)}</span><span class="s">${esc(l.srv)}</span></span>${sevPill(l.severity)}<b class="num" style="font-size:19px;min-width:48px;text-align:right">${n0(l.players)}</b></div>`).join('')}</div>`;
-      $('#srvChips').innerHTML = servers.filter((s) => (s.players || 0) > 0).map((s) => `<button class="chip" data-u="${s.url}" aria-pressed="${s.url === sel}">${esc(s.longName)}${s.game === 'ats' ? ' (ATS)' : ''}</button>`).join('');
+      $('#srvChips').innerHTML = servers.filter((s) => (s.players ?? 1) > 0).map((s) => `<button class="chip" data-u="${s.url}" aria-pressed="${s.url === sel}">${esc(s.longName)}${s.game === 'ats' ? ' (ATS)' : ''}</button>`).join('');
       $('#srvChips').onclick = (e) => { const c = e.target.closest('[data-u]'); if (!c) return; sel = c.dataset.u; $$('#srvChips .chip').forEach((x) => x.setAttribute('aria-pressed', x === c)); renderAll(); };
       renderAll();
-    } catch (e) { $('#hotTop').innerHTML = `<h2>Lo más concurrido ahora</h2><p class="muted">No se pudo conectar con el servicio de tráfico.</p>`; }
+    } catch (e) {
+      $('#hotTop').innerHTML = `<h2>Lo más concurrido ahora</h2><div class="empty" style="padding:18px 0">${ic('trafico')}<b>Tráfico no disponible</b>${esc(e.message)}<div style="margin-top:12px"><button class="btn" id="trRetry">${ic('refresh')}Reintentar</button></div></div>`;
+      $('#hotAll').innerHTML = '<p class="muted">Sin datos por ahora.</p>';
+      if ($('#trRetry')) $('#trRetry').onclick = load;
+    }
   };
   load();
   const t = setInterval(load, 60000);
@@ -1866,8 +1871,14 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.6.1';
 const CHANGELOG = {
+  '1.6.1': [
+    'Tráfico funciona en el móvil sin el PC (zonas más concurridas de todos los servidores)',
+    'Si la zona de tráfico no carga, se explica el motivo y hay un botón «Reintentar» (antes se quedaba cargando)',
+    'Se reconoce cuándo tu operador bloquea TruckersMP por el fútbol y se dice claramente',
+    'Arreglados los avisos con doble marco dentro de otras tarjetas (Entregas, Eventos, Tráfico)'
+  ],
   '1.6.0': [
     'Temporizador de descanso con notificación fija propia: cuenta atrás en directo, hora de fin y botón «Parar»',
     'Más animaciones: onda al pulsar, números que cuentan, listas y títulos que entran suaves, ventanas y paneles con transición',

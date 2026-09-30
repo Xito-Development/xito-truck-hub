@@ -705,3 +705,7 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 @keyframes dotPulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--good) 20%, transparent); } }
 .no-motion .ripple, .no-motion .view-enter .list .item, .no-motion .view-enter .head h1, .no-motion .view-enter .head p, .no-motion .grade, .no-motion .dot.on { animation: none !important; }
 @media (prefers-reduced-motion: reduce) { .ripple, .view-enter .list .item, .dot.on { animation: none !important; } }
+
+/* Un aviso dentro de otra tarjeta no lleva doble marco */
+.card .card.empty, .card .card.play-card { border: 0; background: transparent; box-shadow: none; padding: 18px 0 6px; margin: 0; animation: none; }
+.card .card.empty:hover { transform: none; box-shadow: none; }
