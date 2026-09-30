@@ -1,6 +1,11 @@
 package com.xitodev.truckhub;
 
+import android.app.Activity;
 import android.content.Context;
+import android.graphics.Color;
+import android.view.Window;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
@@ -64,6 +69,28 @@ public class ApkUpdater extends Plugin {
                 call.reject(e.getMessage() == null ? "Error de descarga" : e.getMessage());
             } finally { if (con != null) con.disconnect(); }
         }).start();
+    }
+
+    // Pinta la barra de estado y la de navegación del color del tema de la app (en todas las versiones de Android)
+    @PluginMethod
+    public void setBarsColor(PluginCall call) {
+        final String hex = call.getString("color", "#0E1522");
+        final boolean light = Boolean.TRUE.equals(call.getBoolean("light", false));
+        Activity act = getActivity();
+        if (act == null) { call.resolve(); return; }
+        act.runOnUiThread(() -> {
+            try {
+                int c = Color.parseColor(hex);
+                Window w = act.getWindow();
+                w.getDecorView().setBackgroundColor(c);
+                w.setStatusBarColor(c);
+                w.setNavigationBarColor(c);
+                WindowInsetsControllerCompat ctl = WindowCompat.getInsetsController(w, w.getDecorView());
+                ctl.setAppearanceLightStatusBars(light);
+                ctl.setAppearanceLightNavigationBars(light);
+            } catch (Exception ignored) { }
+            call.resolve();
+        });
     }
 
     @PluginMethod

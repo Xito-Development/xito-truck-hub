@@ -356,6 +356,12 @@ function syncChrome() {
   const cs = getComputedStyle(document.documentElement);
   const bg = cs.getPropertyValue('--bg').trim(), fg = cs.getPropertyValue('--text').trim();
   if (IS_ELECTRON) window.hubNative.setTheme(bg, fg);
+  // Barras del sistema (arriba y abajo) del mismo color que el tema
+  const AU = IS_CAP && window.Capacitor?.Plugins?.ApkUpdater;
+  if (AU?.setBarsColor) {
+    const hex = bg.length === 4 ? '#' + [...bg.slice(1)].map((c) => c + c).join('') : bg;
+    AU.setBarsColor({ color: hex, light: ['amanecer', 'niebla'].includes(document.documentElement.dataset.theme) }).catch(() => {});
+  }
   const SB = IS_CAP && window.Capacitor?.Plugins?.StatusBar;
   if (SB) {
     SB.setOverlaysWebView?.({ overlay: false }).catch?.(() => {});
@@ -1713,8 +1719,11 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.5.6';
+const APP_VERSION = '1.5.7';
 const CHANGELOG = {
+  '1.5.7': [
+    'Android: la barra de estado y la de navegación toman el color del tema de la app'
+  ],
   '1.5.6': [
     'Más rendimiento en el juego: el overlay deja de trabajar cuando está oculto, solo redibuja el mini mapa si algo cambia y ya no usa desenfoques',
     'Con la ventana del HUB minimizada o en la bandeja no se repinta nada',
