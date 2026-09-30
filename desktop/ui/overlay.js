@@ -102,7 +102,8 @@ function arcPath(f0, f1) {
 
 // ---------- actualización ----------
 let smooth = 0, last = performance.now();
-let lastMap = 0;
+let lastMap = 0, running = false, mmKey = '', nearVer = 0, convoyVer = 0;
+function kick() { if (!running) { running = true; last = performance.now(); requestAnimationFrame(frame); } }
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   const t = live?.truck;
@@ -110,16 +111,26 @@ function frame(now) {
   smooth += (target - smooth) * Math.min(1, dt * 7);
   const e = $('#spd'); if (e) e.textContent = Math.round(smooth);
   const arc = $('#arc'); if (arc) arc.setAttribute('stroke-dashoffset', String(1000 - Math.min(1, smooth / (mph() ? 90 : 140)) * 1000));
-  if (now - lastMap > 40) { lastMap = now; drawMinimap(); }
+  if (now - lastMap > 40) {
+    lastMap = now;
+    // El mini mapa solo se vuelve a dibujar si algo ha cambiado (posición, rumbo, zoom, ruta o jugadores)
+    const t2 = live?.truck;
+    const key = t2 ? `${Math.round(t2.x)}|${Math.round(t2.z)}|${(t2.heading || 0).toFixed(3)}|${mmZoom}|${nearVer}|${route ? route.computedAt + ':' + (route.gps?.units || 0) : 0}|${O().routeMode}|${convoyVer}|${imgsLoaded}` : '';
+    if (key !== mmKey) { mmKey = key; drawMinimap(); }
+  }
+  // Se detiene cuando el HUD está oculto (juego cerrado, en pausa o overlay apagado): cero consumo
+  const hudOff = $('#hud').classList.contains('off') && !editing;
+  if (hudOff && Math.abs(smooth - target) < 0.5) { running = false; return; }
   requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
+kick();
 
 function update() {
   const on = live && live.sdk && status?.state === 'connected';
   const paused = on && live.paused;
   const hud = $('#hud');
   hud.classList.toggle('off', !editing && (!on || paused));
+  if (!hud.classList.contains('off') || editing) kick();
   const pill = $('#pausePill');
   pill.classList.toggle('hidden', !(paused && O().pauseMini !== false) || editing);
   if (paused) $('#pauseInfo').textContent = live.job?.onJob ? `${live.job.toCity} · ${dist((live.nav?.distance || 0) / 1000)}` : clock(clockMins());
@@ -228,10 +239,10 @@ const GAMES = {
   ats: { url: 'https://map-cdn.krashnz.com/ets2map/ats-promods/v1.6.3', off: { x: -18, y: -18 }, r: { xMin: -122, xMax: 39, yMin: -88, yMax: 100 } }
 };
 const LEVELS = [[1, 1, 0], [2, 3, 1000], [3, 9, 4000], [4, 27, 13000]];
-const imgs = new Map();
+const imgs = new Map(); let imgsLoaded = 0;
 function tile(url) {
   let e = imgs.get(url); if (e) return e;
-  const im = new Image(); e = { im, ok: false }; im.onload = () => (e.ok = true); im.src = url; imgs.set(url, e);
+  const im = new Image(); e = { im, ok: false }; im.onload = () => { e.ok = true; imgsLoaded++; }; im.src = url; imgs.set(url, e);
   if (imgs.size > 200) imgs.delete(imgs.keys().next().value);
   return e;
 }
@@ -317,7 +328,7 @@ function drawMinimap() {
     nearT = performance.now();
     const R = Math.max((O().playerRange ?? 1.5) * 1000, Math.min(20000, (Math.hypot(W, H) / ppu) * 0.7));
     fetch(`/api/map/area?x1=${t.x - R}&y1=${t.z - R}&x2=${t.x + R}&y2=${t.z + R}&server=auto`).then((r) => r.json()).then((r) => { const maxD = (O().playerRange ?? 1.5) * 1000;
-      near = (r.players || []).filter((p) => { const d = Math.hypot(p[0] - t.x, p[1] - t.z); return d > 25 && d <= maxD; }); }).catch(() => {});
+      near = (r.players || []).filter((p) => { const d = Math.hypot(p[0] - t.x, p[1] - t.z); return d > 25 && d <= maxD; }); nearVer++; }).catch(() => {});
   }
   ctx.fillStyle = '#43e0ff'; ctx.strokeStyle = '#0c121c'; ctx.lineWidth = 1.5;
   for (const p of near) {
@@ -463,7 +474,7 @@ function connect() {
       fetch('/api/route/current').then((r) => r.json()).then((r) => { if (r && r.route) route = r.route; }).catch(() => {});
       update();
     } else if (msg.t === 'tel') { live = msg.d; if (msg.ses) ses = msg.ses; if (msg.tacho) tacho = msg.tacho; cur = msg.cur; tmpTime = msg.tmpTime ?? null; onTmp = !!msg.onTmp; update(); }
-    else if (msg.t === 'convoy') { convoy = msg.d; renderConvoy(); }
+    else if (msg.t === 'convoy') { convoy = msg.d; convoyVer++; renderConvoy(); }
     else if (msg.t === 'laliga') laligaPill(msg.d);
     else if (msg.t === 'status') { status = msg.d; update(); }
     else if (msg.t === 'settings') applySettings(msg.settings);

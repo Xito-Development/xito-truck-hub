@@ -68,7 +68,7 @@ class Navigator {
     const p = (async () => {
       const locs = await world.locations(game).catch(() => []);
       const hot = (this.traffic.nearby?.server?.top) || [];
-      const r = await router.route({ game, from, to, heat: world.heatList(game, 0.2), cities: locs.filter((l) => l.t === 'city'), hot }, { alternatives: true });
+      const r = await this.routeAsync({ game, from, to, heat: world.heatList(game, 0.2), cities: locs.filter((l) => l.t === 'city'), hot }, { alternatives: true });
       r.gps = this.pickGps(r);
       const value = { ...r, dest, from, computedAt: Date.now() };
       this.cache = { key, value };
@@ -111,5 +111,26 @@ Navigator.prototype.recheckGps = function () {
   for (const c of [v.fastest, v.popular, ...(v.alts || [])].filter(Boolean)) { const { L, off } = remaining(c); const score = Math.abs(L - navM) + off * 2; if (score < bs) { bs = score; best = c; } }
   if (best && (!prev || best.units !== prev.units)) { v.gps = { ...best, match: Math.max(0, Math.round(100 - (bs / navM) * 100)) }; return v; }
   return null;
+};
+// Ejecuta el cálculo en el hilo de rutas (si falla el hilo, lo hace aquí mismo)
+Navigator.prototype.routeAsync = function (args, opts) {
+  if (!this.worker && !this.workerBroken) {
+    try {
+      const { Worker } = require('worker_threads');
+      const wfile = require('path').join(__dirname, 'routeWorker.js').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
+      this.worker = new Worker(wfile, { workerData: { cacheDir: this.cacheDir } });
+      this.pendingRoutes = new Map(); this.seq = 0;
+      this.worker.on('message', (m) => { const p = this.pendingRoutes.get(m.id); if (!p) return; this.pendingRoutes.delete(m.id); m.ok ? p.ok(m.result) : p.ko(new Error(m.error)); });
+      this.worker.on('error', (e) => {
+        // Si el hilo no puede arrancar (p. ej. dentro del paquete), se calcula aquí mismo sin perder la petición
+        console.warn('[rutas] hilo', e.message); this.workerBroken = true; this.worker = null;
+        if (this.cacheDir) router.setCacheDir(this.cacheDir);
+        for (const p of this.pendingRoutes.values()) router.route(p.args, p.opts).then(p.ok, p.ko);
+        this.pendingRoutes.clear();
+      });
+    } catch (e) { this.workerBroken = true; }
+  }
+  if (!this.worker) { if (this.cacheDir) router.setCacheDir(this.cacheDir); return router.route(args, opts); }
+  return new Promise((ok, ko) => { const id = ++this.seq; this.pendingRoutes.set(id, { ok, ko, args, opts }); this.worker.postMessage({ id, args, opts }); });
 };
 module.exports = Navigator;

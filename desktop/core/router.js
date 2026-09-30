@@ -13,19 +13,38 @@ const LEVELS = { 3: [3, 9, 4000, 9000], 4: [4, 27, 13000, 27000] };
 const tf = (game, x, y) => (game === 'ets2' && y < -0.14 * x - 10040 && x < -30100 ? [0.75 * x - 8337, 0.75 * y - 1000] : [x, y]);
 
 const tileCache = new Map();
+// Las teselas se guardan en disco (no se vuelven a descargar) y en memoria solo como un mapa de bits
+// de «hay carretera / no hay» (1 bit por píxel en vez de 4 bytes: ~30 veces menos memoria)
+const fs = require('fs');
+const path = require('path');
+let cacheDir = null;
+function setCacheDir(d) { cacheDir = d; try { fs.mkdirSync(d, { recursive: true }); } catch {} }
+function toBits(png) {
+  const n = png.width * png.height, bits = new Uint8Array((n + 7) >> 3), d = png.data;
+  for (let p = 0, o = 0; p < n; p++, o += 4) if (d[o + 3] >= 90 && d[o] + d[o + 1] + d[o + 2] >= 330) bits[p >> 3] |= 1 << (p & 7);
+  return { w: png.width, h: png.height, bits };
+}
 async function tile(game, a, i, lv) {
   const key = `${game}:${a}:${i}:${lv}`;
   if (tileCache.has(key)) return tileCache.get(key);
   const p = (async () => {
     try {
-      const r = await fetch(`${GAMES[game].url}/${a}_${i}_${lv}.png`, { signal: AbortSignal.timeout(20000) });
-      if (!r.ok || !(r.headers.get('content-type') || '').includes('png')) return null;
-      const png = PNG.sync.read(Buffer.from(await r.arrayBuffer()));
-      return { w: png.width, h: png.height, data: png.data };
+      const file = cacheDir && path.join(cacheDir, `${game}_${a}_${i}_${lv}.png`);
+      let buf = null;
+      if (file && fs.existsSync(file)) buf = fs.readFileSync(file);
+      if (!buf) {
+        const r = await fetch(`${GAMES[game].url}/${a}_${i}_${lv}.png`, { signal: AbortSignal.timeout(20000) });
+        if (r.status === 404 || r.status === 403) { if (file) fs.writeFileSync(file, Buffer.alloc(0)); return null; }
+        if (!r.ok || !(r.headers.get('content-type') || '').includes('png')) return null;
+        buf = Buffer.from(await r.arrayBuffer());
+        if (file) try { fs.writeFileSync(file, buf); } catch {}
+      }
+      if (!buf.length) return null; // tesela vacía (mar o fuera del mapa)
+      return toBits(PNG.sync.read(buf));
     } catch { return null; }
   })();
   tileCache.set(key, p);
-  if (tileCache.size > 120) tileCache.delete(tileCache.keys().next().value);
+  if (tileCache.size > 400) tileCache.delete(tileCache.keys().next().value);
   const v = await p;
   if (!v) tileCache.delete(key);
   return v;
@@ -81,10 +100,8 @@ async function buildGrid(game, A, B) {
       const wy = ty + py * sy; if (wy < y0 || wy >= y1) continue;
       const gy = ((wy - y0) / C) | 0;
       for (let px = 0; px < t.w; px++) {
-        const o = (py * t.w + px) * 4;
-        if (t.data[o + 3] < 90) continue;
-        const lum = t.data[o] + t.data[o + 1] + t.data[o + 2];
-        if (lum < 330) continue;
+        const p = py * t.w + px;
+        if (!(t.bits[p >> 3] & (1 << (p & 7)))) continue;
         const wx = tx + px * sx; if (wx < x0 || wx >= x1) continue;
         road[gy * W + (((wx - x0) / C) | 0)] = 1;
       }
@@ -219,4 +236,4 @@ async function route({ game = 'ets2', from, to, heat = [], cities = [], hot = []
   }
   return { game, popular, fastest, alts, heatCells: heat.length, grid: { cell: G.C, w: G.W, h: G.H } };
 }
-module.exports = { route, tf };
+module.exports = { route, tf, setCacheDir };

@@ -239,6 +239,13 @@ app.whenReady().then(() => {
   refreshTray();
   setTimeout(() => { createWindow(); createOverlay(); }, 400);
   setTimeout(checkForUpdates, 8000);
+  // Prioridad baja para todos los procesos del HUB: el juego siempre va primero
+  const lowPrio = () => {
+    const os = require('os');
+    for (const m of app.getAppMetrics()) { try { os.setPriority(m.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {} }
+    try { if (hub.bridge?.proc?.pid) os.setPriority(hub.bridge.proc.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
+  };
+  setTimeout(lowPrio, 5000); setInterval(lowPrio, 60000);
   // El icono de la bandeja dice qué está pasando
   setInterval(() => {
     if (!tray) return;

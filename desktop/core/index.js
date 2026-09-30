@@ -38,6 +38,7 @@ function start({ dataDir, resourcesDir, uiDir, port = 25580, hooks = {}, version
   const relayRef = {};
   const discord = new Discord(store, tracker);
   const nav = new Navigator(store, tracker, traffic);
+  nav.cacheDir = require('path').join(dataDir, 'tiles');
   tracker.on('job', (j) => {
     if (j.phase !== 'started') return;
     // Espera a que el GPS calcule la ruta y avisa por dónde va la ruta más concurrida
@@ -123,7 +124,7 @@ function start({ dataDir, resourcesDir, uiDir, port = 25580, hooks = {}, version
   world.startHeat(() => tracker.status?.state === 'connected');
   // Marca sin avisar los logros que ya estaban conseguidos al abrir el HUB
   setTimeout(() => alerts.checkAchievements(true), 5000);
-  const stop = () => { clearInterval(clockTimer); clearInterval(navTimer); laliga.stop(); tmpWatch.stop(); convoy.stop(true); vtcBot.stop(); relayRef.relay.stop(); game.stop(); world.stopHeat(); traffic.stop(); discord.stop(); bridge.stop(); store.save(true); try { srv.server.close(); } catch {} };
+  const stop = () => { try { nav.worker?.terminate(); } catch {} clearInterval(clockTimer); clearInterval(navTimer); laliga.stop(); tmpWatch.stop(); convoy.stop(true); vtcBot.stop(); relayRef.relay.stop(); game.stop(); world.stopHeat(); traffic.stop(); discord.stop(); bridge.stop(); store.save(true); try { srv.server.close(); } catch {} };
   return { store, tracker, bridge, srv, traffic, alerts, discord, nav, game, relay: relayRef.relay, tacho, vtcBot, convoy, stop };
 }
 module.exports = { start };

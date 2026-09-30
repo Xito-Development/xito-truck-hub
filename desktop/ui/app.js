@@ -279,7 +279,9 @@ function onHubMsg(msg) {
     S.status = msg.status || S.status; S.live = msg.live; S.settings = msg.settings; S.cur = msg.current; S.traffic = msg.traffic;
     applyTheme(); emit('status'); emit('tel'); emit('traffic');
   } else if (msg.t === 'tel') {
-    S.live = msg.d; S.curLive = msg.cur; S.tmpTime = msg.tmpTime ?? null; S.onTmp = !!msg.onTmp; if (msg.ses) S.ses = msg.ses; if (msg.tacho) S.tacho = msg.tacho; emit('tel');
+    S.live = msg.d; S.curLive = msg.cur; S.tmpTime = msg.tmpTime ?? null; S.onTmp = !!msg.onTmp; if (msg.ses) S.ses = msg.ses; if (msg.tacho) S.tacho = msg.tacho;
+    // Con la ventana oculta o minimizada no se repinta nada (el juego va más fluido); se pone al día al volver
+    if (!document.hidden) emit('tel');
   } else if (msg.t === 'status') {
     S.status = msg.d; emit('status');
   } else if (msg.t === 'ev') {
@@ -1711,8 +1713,16 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.5.5';
+const APP_VERSION = '1.5.6';
 const CHANGELOG = {
+  '1.5.6': [
+    'Más rendimiento en el juego: el overlay deja de trabajar cuando está oculto, solo redibuja el mini mapa si algo cambia y ya no usa desenfoques',
+    'Con la ventana del HUB minimizada o en la bandeja no se repinta nada',
+    'Todos los procesos del HUB funcionan con prioridad baja: el juego siempre va primero',
+    'Las rutas se calculan en un hilo aparte: la telemetría y el HUB ya no se congelan mientras tanto',
+    'El mapa de carreteras se guarda en el disco: las rutas siguientes se calculan en una fracción de segundo',
+    'Mucha menos memoria para calcular rutas (unas 30 veces menos)'
+  ],
   '1.5.5': [
     'Telemetría 4 veces más rápida: 20 lecturas por segundo en el HUB y el overlay (antes 5)',
     'Móvil: 5 por segundo por la Wi‑Fi y el doble que antes en remoto',
@@ -2351,6 +2361,7 @@ function connectScreen() {
 }
 
 // ---------- arranque ----------
+document.addEventListener('visibilitychange', () => { if (!document.hidden && S.live) emit('tel'); });
 function initWindowBar() {
   if (!IS_ELECTRON) return;
   const root = document.documentElement; root.classList.add('electron');
