@@ -8,7 +8,7 @@
 	},
 	"android": {
 		"allowMixedContent": true,
-		"adjustMarginsForEdgeToEdge": "force",
+		"adjustMarginsForEdgeToEdge": "disable",
 		"backgroundColor": "#0e1522"
 	},
 	"plugins": {

@@ -4,7 +4,10 @@ import android.app.Activity;
 import android.content.Context;
 import android.graphics.Color;
 import android.view.Window;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.graphics.Insets;
 import androidx.core.view.WindowInsetsControllerCompat;
 import android.content.Intent;
 import android.net.Uri;
@@ -90,6 +93,35 @@ public class ApkUpdater extends Plugin {
                 ctl.setAppearanceLightNavigationBars(light);
             } catch (Exception ignored) { }
             call.resolve();
+        });
+    }
+
+    // Pantalla completa de borde a borde: la app se dibuja debajo de las barras (transparentes)
+    // y devuelve cuánto ocupan para que el contenido no quede tapado
+    @PluginMethod
+    public void edgeToEdge(PluginCall call) {
+        final boolean light = Boolean.TRUE.equals(call.getBoolean("light", false));
+        Activity act = getActivity();
+        if (act == null) { call.resolve(); return; }
+        act.runOnUiThread(() -> {
+            JSObject r = new JSObject();
+            try {
+                Window w = act.getWindow();
+                WindowCompat.setDecorFitsSystemWindows(w, false);
+                w.setStatusBarColor(Color.TRANSPARENT);
+                w.setNavigationBarColor(Color.TRANSPARENT);
+                if (Build.VERSION.SDK_INT >= 29) { w.setStatusBarContrastEnforced(false); w.setNavigationBarContrastEnforced(false); }
+                WindowInsetsControllerCompat ctl = WindowCompat.getInsetsController(w, w.getDecorView());
+                ctl.setAppearanceLightStatusBars(light);
+                ctl.setAppearanceLightNavigationBars(light);
+                float d = act.getResources().getDisplayMetrics().density;
+                WindowInsetsCompat ins = ViewCompat.getRootWindowInsets(w.getDecorView());
+                if (ins != null) {
+                    Insets b = ins.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                    r.put("top", Math.round(b.top / d)); r.put("bottom", Math.round(b.bottom / d));
+                }
+            } catch (Exception ignored) { }
+            call.resolve(r);
         });
     }
 

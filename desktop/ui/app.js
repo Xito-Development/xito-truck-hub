@@ -115,6 +115,7 @@ const P = {
   tacho: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9 2h6"/>',
   horn: '<path d="M3 10v4h3l7 5V5L6 10z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a7.5 7.5 0 0 1 0 11"/>',
   recorridos: '<path d="M4 19c3-6 5-2 8-8s5-3 8-7"/><circle cx="4" cy="19" r="1.6"/><circle cx="20" cy="4" r="1.6"/>',
+  herramientas: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L3 17.8V21h3.2l6.3-6.3a4 4 0 0 0 5.2-5.4l-2.4 2.4-2.8-.6-.6-2.8z"/>',
   plug: '<path d="M9 2v6"/><path d="M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/>'
 };
 const ic = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
@@ -169,12 +170,27 @@ async function directJson(url, timeout = 15000) {
   }
   if (body && typeof body === 'object') return body;
   const text = String(body || '');
-  if (/^\s*</.test(text)) throw new Error(S.laliga?.blocked ? 'Bloqueado por LaLiga (hay fútbol). Vuelve a intentarlo cuando termine.' : status === 404 ? 'No encontrado' : 'El servicio no está disponible desde esta red ahora mismo. Inténtalo en un rato o conecta con el PC.');
+  if (/^\s*</.test(text)) throw new Error(S.laliga?.blocked ? 'Bloqueado por LaLiga (hay fútbol). Vuelve a intentarlo cuando termine.' : status === 404 ? 'No encontrado' : 'TruckersMP no responde desde esta red. Si hay fútbol, puede ser por los bloqueos de LaLiga; si no, prueba en un rato.');
   if (status >= 400 && !text) throw new Error(`Error ${status}`);
   return JSON.parse(text);
 }
 window.directJson = directJson;
 async function tmp(kind, id) {
+  const ck = `cache.tmp.${kind}.${id || ''}`;
+  try {
+    const r = await tmpLive(kind, id);
+    try { LS.set(ck, { at: Date.now(), r }); } catch {}
+    return r;
+  } catch (e) {
+    const c = LS.get(ck, null);
+    if (c) {
+      if (!S._tmpCacheToast) { S._tmpCacheToast = true; toast('Mostrando datos guardados', `TruckersMP no responde ahora: ${e.message}`, 'tmp'); }
+      return c.r;
+    }
+    throw e;
+  }
+}
+async function tmpLive(kind, id) {
   if (S.connected) return api(`/api/tmp/${kind}${id ? `?id=${encodeURIComponent(id)}` : ''}`);
   const sid = id || (kind.startsWith('vtc') ? tmpIds().vtc : tmpIds().player);
   if (!sid && TMP_DIRECT[kind].length) throw new Error(kind.startsWith('vtc') ? 'Añade tu VTC en «Mi VTC»' : 'Configura tu ID de TruckersMP');
@@ -358,9 +374,11 @@ function syncChrome() {
   if (IS_ELECTRON) window.hubNative.setTheme(bg, fg);
   // Barras del sistema (arriba y abajo) del mismo color que el tema
   const AU = IS_CAP && window.Capacitor?.Plugins?.ApkUpdater;
-  if (AU?.setBarsColor) {
-    const hex = bg.length === 4 ? '#' + [...bg.slice(1)].map((c) => c + c).join('') : bg;
-    AU.setBarsColor({ color: hex, light: ['amanecer', 'niebla'].includes(document.documentElement.dataset.theme) }).catch(() => {});
+  // Pantalla completa: barras del sistema invisibles y el contenido se aparta lo justo
+  if (AU?.edgeToEdge) {
+    AU.edgeToEdge({ light: ['amanecer', 'niebla'].includes(document.documentElement.dataset.theme) }).then((r) => {
+      if (r && r.top != null) { document.documentElement.style.setProperty('--safe-top', r.top + 'px'); document.documentElement.style.setProperty('--safe-bottom', (r.bottom || 0) + 'px'); }
+    }).catch(() => {});
   }
   const SB = IS_CAP && window.Capacitor?.Plugins?.StatusBar;
   if (SB) {
@@ -500,6 +518,7 @@ const NAV = [
   { id: 'eventos', label: 'Eventos' },
   { id: 'trafico', label: 'Tráfico' },
   { id: 'convoy', label: 'Convoy' },
+  { id: 'herramientas', label: 'Herramientas' },
   { id: 'botonera', label: 'Botonera' },
   { id: 'tmp', label: 'TruckersMP' },
   { id: 'vtc', label: 'Mi VTC' },
@@ -533,6 +552,51 @@ function markNav() {
   const more = $('[data-more]');
   if (more) { if (!MOB_MAIN.includes(S.route)) more.setAttribute('aria-current', 'page'); else more.removeAttribute('aria-current'); }
 }
+window.addEventListener('resize', () => requestAnimationFrame(moveNavPill));
+// Los números grandes (KPI) cuentan desde 0 al aparecer
+function animateNumber(el) {
+  if (el.dataset.anim || document.documentElement.classList.contains('no-motion')) return;
+  const node = [...el.childNodes].find((n) => n.nodeType === 3 && /\d/.test(n.nodeValue));
+  if (!node) return;
+  const txt = node.nodeValue, m = txt.match(/-?[\d.]+(,\d+)?/);
+  if (!m) return;
+  const target = parseFloat(m[0].replace(/\./g, '').replace(',', '.'));
+  if (!isFinite(target) || target === 0) return;
+  el.dataset.anim = '1';
+  const dec = m[1] ? m[1].length - 1 : 0, t0 = performance.now(), D = 700;
+  const fmt = (v) => new Intl.NumberFormat('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(v);
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - k, 3);
+    node.nodeValue = txt.replace(m[0], fmt(target * e));
+    if (k < 1) requestAnimationFrame(step); else node.nodeValue = txt;
+  };
+  requestAnimationFrame(step);
+}
+function watchNumbers(v) {
+  $$('.kpi .v, .tool-out b', v).forEach(animateNumber);
+  const mo = new MutationObserver(() => $$('.kpi .v, .tool-out b', v).forEach(animateNumber));
+  mo.observe(v, { childList: true, subtree: true });
+  setTimeout(() => mo.disconnect(), 2500);
+}
+// Onda al pulsar botones, chips y filas
+document.addEventListener('pointerdown', (e) => {
+  const t = e.target.closest('.btn, .chip, .item, .kb-btn, .wz-opt, .theme-opt');
+  if (!t || document.documentElement.classList.contains('no-motion')) return;
+  const r = t.getBoundingClientRect(), d = Math.max(r.width, r.height) * 2;
+  const w = document.createElement('span'); w.className = 'ripple';
+  w.style.cssText = `width:${d}px;height:${d}px;left:${e.clientX - r.left - d / 2}px;top:${e.clientY - r.top - d / 2}px`;
+  if (getComputedStyle(t).position === 'static') t.style.position = 'relative';
+  t.style.overflow = 'hidden'; t.appendChild(w); setTimeout(() => w.remove(), 650);
+}, { passive: true });
+function moveNavPill() {
+  const nav = $('.mobnav'); if (!nav) return;
+  let pill = nav.querySelector('.nav-pill');
+  if (!pill) { pill = document.createElement('span'); pill.className = 'nav-pill'; nav.prepend(pill); }
+  const b = nav.querySelector('button[aria-current="page"]');
+  if (!b) { pill.style.opacity = '0'; return; }
+  pill.style.opacity = '1';
+  pill.style.transform = `translateX(${b.offsetLeft}px)`; pill.style.width = b.offsetWidth + 'px';
+}
 function go(route, push = true) {
   if (!VIEWS[route]) route = 'cabina';
   if (S.closeDash) S.closeDash();
@@ -544,6 +608,8 @@ function go(route, push = true) {
   $('#main').scrollTop = 0;
   cleanup = VIEWS[route](v) || null;
   markNav();
+  requestAnimationFrame(moveNavPill);
+  watchNumbers(v);
   const mt = $('#mbarTitle'); if (mt) mt.textContent = (NAV.find((n) => n.id === route) || {}).label || '';
 }
 function updateConn() {
@@ -1235,6 +1301,87 @@ VIEWS.trafico = (root) => {
   return () => { clearInterval(t); offs.forEach((f) => f()); };
 };
 
+// ---------- Herramientas (funcionan sin el PC) ----------
+VIEWS.herramientas = (root) => {
+  const T = LS.get('tools', { km: 450, speed: 80, cons: 32, price: 1.6, rest: 0, notes: [] });
+  const save = () => LS.set('tools', T);
+  root.innerHTML = `<div class="head"><div><h1>Herramientas</h1><p>Calculadoras y utilidades que funcionan sin el ordenador</p></div></div>
+    <div class="grid g2 tools">
+      <section class="card"><h2>Planificador de viaje</h2>
+        <div class="grid g2 keep" style="gap:10px">
+          <div class="field"><label for="tKm">Distancia (km)</label><input class="input" id="tKm" type="number" inputmode="decimal" value="${T.km}"></div>
+          <div class="field"><label for="tSpd">Velocidad media (km/h)</label><input class="input" id="tSpd" type="number" inputmode="decimal" value="${T.speed}"></div>
+          <div class="field"><label for="tCons">Consumo (l/100 km)</label><input class="input" id="tCons" type="number" inputmode="decimal" value="${T.cons}"></div>
+          <div class="field"><label for="tPrice">Precio (€/l)</label><input class="input" id="tPrice" type="number" inputmode="decimal" step="0.01" value="${T.price}"></div>
+        </div>
+        <div class="tool-out" id="tOut"></div></section>
+      <section class="card"><h2>Temporizador de descanso</h2>
+        <p class="muted" style="font-size:13px;margin-bottom:12px">Te avisa aunque tengas la app en segundo plano.</p>
+        <div class="rest-ring" id="rRing"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="bgc"/><circle cx="60" cy="60" r="52" class="fgc" id="rArc" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/></svg><b id="rTime">—</b></div>
+        <div class="chips" id="rQuick" style="justify-content:center;margin-top:12px">${[15, 30, 45, 60, 90].map((m) => `<button class="chip" data-m="${m}">${m} min</button>`).join('')}<button class="chip" data-m="0">Parar</button></div></section>
+      <section class="card"><h2>Conversor</h2>
+        <div class="row wrap" style="gap:8px"><input class="input" id="cVal" type="number" inputmode="decimal" value="100" style="flex:1;min-width:120px">
+        <select class="input" id="cKind" style="width:auto"><option value="km">km → millas</option><option value="mi">millas → km</option><option value="l">litros → galones</option><option value="gal">galones → litros</option><option value="t">toneladas → libras</option><option value="lb">libras → toneladas</option><option value="kmh">km/h → mph</option><option value="mph">mph → km/h</option></select></div>
+        <div class="tool-out" id="cOut"></div></section>
+      <section class="card"><h2>Tiempo del juego</h2>
+        <p class="muted" style="font-size:13px;margin-bottom:10px">Cuánto dura de verdad un plazo de entrega del juego.</p>
+        <div class="row wrap" style="gap:8px"><input class="input" id="gH" type="number" inputmode="decimal" value="10" style="width:110px"><span class="muted" style="align-self:center">horas de juego</span></div>
+        <div class="tool-out" id="gOut"></div></section>
+      <section class="card span2"><h2>Mis notas <span class="pill">${T.notes.length}</span></h2>
+        <div class="row" style="gap:8px"><input class="input" id="nIn" maxlength="200" placeholder="Apunta algo: una empresa, un cargamento, un recordatorio…"><button class="btn primary" id="nAdd">${ic('check')}Guardar</button></div>
+        <div class="list" id="nList" style="margin-top:10px"></div></section>
+    </div>`;
+  const nf = (v, d = 0) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: d }).format(v);
+  const calc = () => {
+    T.km = +$('#tKm').value || 0; T.speed = +$('#tSpd').value || 1; T.cons = +$('#tCons').value || 0; T.price = +$('#tPrice').value || 0; save();
+    const h = T.km / T.speed, lit = (T.km * T.cons) / 100;
+    const breaks = Math.floor(h / 4.5);
+    $('#tOut').innerHTML = `<div><b>${dur(h * 3600)}</b><span>al volante${breaks ? ` + ${breaks} pausa${breaks > 1 ? 's' : ''} de 45 min` : ''}</span></div>
+      <div><b>${nf(lit)} l</b><span>de combustible</span></div><div><b>${nf(lit * T.price, 2)} €</b><span>de gasto</span></div>
+      <div><b>${dur(h * 3600 / 19)}</b><span>de tiempo real en un jugador (x19)</span></div>`;
+  };
+  ['#tKm', '#tSpd', '#tCons', '#tPrice'].forEach((id) => ($(id).oninput = calc)); calc();
+  const conv = () => {
+    const v = +$('#cVal').value || 0, k = $('#cKind').value;
+    const F = { km: [0.621371, 'millas'], mi: [1.609344, 'km'], l: [0.264172, 'galones'], gal: [3.785411, 'litros'], t: [2204.62, 'libras'], lb: [1 / 2204.62, 'toneladas'], kmh: [0.621371, 'mph'], mph: [1.609344, 'km/h'] }[k];
+    $('#cOut').innerHTML = `<div><b>${nf(v * F[0], 2)}</b><span>${F[1]}</span></div>`;
+  };
+  $('#cVal').oninput = conv; $('#cKind').onchange = conv; conv();
+  const gt = () => { const h = +$('#gH').value || 0; $('#gOut').innerHTML = `<div><b>${dur((h * 3600) / 19)}</b><span>reales en un jugador (el juego va 19 veces más rápido)</span></div><div><b>${dur((h * 3600) / 6)}</b><span>reales en TruckersMP (6 veces más rápido)</span></div>`; };
+  $('#gH').oninput = gt; gt();
+  // temporizador
+  const tick = () => {
+    const end = LS.get('restEnd', 0), total = LS.get('restTotal', 0);
+    const left = Math.max(0, end - Date.now());
+    if (!$('#rTime')) return;
+    if (!end) { $('#rTime').textContent = 'Listo'; $('#rArc').setAttribute('stroke-dashoffset', '100'); return; }
+    const m = Math.floor(left / 60000), sgs = Math.floor((left % 60000) / 1000);
+    $('#rTime').textContent = `${m}:${String(sgs).padStart(2, '0')}`;
+    $('#rArc').setAttribute('stroke-dashoffset', String(100 - (total ? (left / total) * 100 : 0)));
+    if (!left) { LS.set('restEnd', 0); window.Capacitor?.Plugins?.RestTimer?.stop().catch(() => {}); toast('¡Descanso terminado!', 'Ya puedes volver a la carretera.', 'check', 'good'); HubSound?.beep('good', 0.8, S.settings?.alerts?.pack || 'suave'); haptic(); }
+  };
+  $('#rQuick').onclick = async (e) => {
+    const b = e.target.closest('[data-m]'); if (!b) return;
+    const m = +b.dataset.m; const LN = window.Capacitor?.Plugins?.LocalNotifications;
+    const RT = window.Capacitor?.Plugins?.RestTimer;
+    if (!m) { LS.set('restEnd', 0); LN?.cancel({ notifications: [{ id: 777 }] }).catch(() => {}); RT?.stop().catch(() => {}); tick(); return; }
+    LS.set('restEnd', Date.now() + m * 60000); LS.set('restTotal', m * 60000);
+    RT?.start({ endAt: Date.now() + m * 60000 }).catch(() => {});
+    if (LN) { try { await askNotifyPermission(); await LN.schedule({ notifications: [{ id: 777, title: 'Descanso terminado', body: 'Ya puedes volver a la carretera.', schedule: { at: new Date(Date.now() + m * 60000), allowWhileIdle: true } }] }); } catch {} }
+    haptic(); tick();
+  };
+  const iv = setInterval(tick, 1000); tick();
+  // notas
+  const drawNotes = () => {
+    $('#nList').innerHTML = T.notes.length ? T.notes.map((n, i) => `<div class="item note-item"><span class="grow" style="white-space:normal">${esc(n.t)}<small class="muted" style="display:block">${ago(n.at)}</small></span><button class="btn ghost" data-del="${i}" aria-label="Borrar">${ic('x')}</button></div>`).join('') : '<p class="muted">Aún no tienes notas.</p>';
+  };
+  $('#nAdd').onclick = () => { const v = $('#nIn').value.trim(); if (!v) return; T.notes.unshift({ t: v, at: Date.now() }); T.notes = T.notes.slice(0, 100); save(); $('#nIn').value = ''; drawNotes(); haptic(); };
+  $('#nIn').onkeydown = (e) => { if (e.key === 'Enter') $('#nAdd').click(); };
+  $('#nList').onclick = (e) => { const b = e.target.closest('[data-del]'); if (!b) return; T.notes.splice(+b.dataset.del, 1); save(); drawNotes(); };
+  drawNotes();
+  return () => clearInterval(iv);
+};
+
 // ---------- Convoy ----------
 const QUICK = ['Parada en la próxima gasolinera', 'Esperadme, voy detrás', 'Adelante, seguid', 'Todo bien por aquí', 'Cuidado: accidente delante', 'Llegamos en 5 minutos'];
 VIEWS.convoy = (root) => {
@@ -1306,7 +1453,7 @@ VIEWS.botonera = (root) => {
       <div class="row wrap"><button class="btn" id="kbEdit">${editing ? ic('check') + 'Guardar teclas' : ic('ajustes') + 'Editar teclas'}</button></div></div>
       ${!S.connected ? notConnectedCard() : ''}
       ${S.connected && !live ? '<div class="card" style="margin-bottom:16px"><b>Modo de prueba</b><p class="muted">En modo demostración las pulsaciones no se envían al juego.</p></div>' : ''}
-      <p class="muted" style="margin:-6px 0 14px;font-size:13px">El juego tiene que estar en primer plano en el PC. Las teclas son las de fábrica de ETS2/ATS; si las cambiaste en el juego, cámbialas aquí.</p>
+      <p class="muted" style="margin:14px 0;font-size:13px">El juego tiene que estar en primer plano en el PC. Las teclas son las de fábrica de ETS2/ATS; si las cambiaste en el juego, cámbialas aquí.</p>
       <div class="kb">${KEY_GROUPS.map(([g, items]) => `<section class="kb-group"><h3>${g}</h3><div class="kb-grid">${items.map(([id, label, icon, state, hold]) =>
         `<div class="kb-cell"><button class="kb-btn" data-k="${id}" ${hold ? 'data-hold="1"' : ''} ${state ? `data-st="${state}"` : ''}>${icon === 'plus' ? '<b class="kb-sym">+</b>' : icon === 'minus' ? '<b class="kb-sym">−</b>' : ic(icon)}<span>${label}</span></button>
         ${editing ? `<input class="input kb-in" data-bind="${id}" value="${esc(bindings[id] || '')}" maxlength="12">` : `<small class="kb-key">${esc(bindings[id] || '')}</small>`}</div>`).join('')}</div></section>`).join('')}</div>`;
@@ -1719,10 +1866,22 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.5.7';
+const APP_VERSION = '1.6.0';
 const CHANGELOG = {
-  '1.5.7': [
-    'Android: la barra de estado y la de navegación toman el color del tema de la app'
+  '1.6.0': [
+    'Temporizador de descanso con notificación fija propia: cuenta atrás en directo, hora de fin y botón «Parar»',
+    'Más animaciones: onda al pulsar, números que cuentan, listas y títulos que entran suaves, ventanas y paneles con transición',
+    'Las tarjetas se elevan al pasar el ratón en el PC y los indicadores de conexión laten'
+  ],
+  '1.5.9': [
+    'Nueva sección Herramientas, sin necesidad del PC: planificador de viaje (tiempo, pausas, combustible y gasto), temporizador de descanso con aviso, conversor de unidades, tiempo del juego y notas',
+    'TruckersMP guarda una copia: si no hay conexión (o hay bloqueos por el fútbol) se muestran los últimos datos',
+    'Menú inferior con indicador que se desliza, iconos con animación y sin el recuadro al tocar',
+    'Las tarjetas entran con una animación suave y escalonada al cambiar de sección',
+    'Arreglado el texto de la Botonera que se montaba sobre el aviso de conexión'
+  ],
+  '1.5.8': [
+    'Android a pantalla completa: la barra de estado y la de navegación son transparentes y la app ocupa toda la pantalla'
   ],
   '1.5.6': [
     'Más rendimiento en el juego: el overlay deja de trabajar cuando está oculto, solo redibuja el mini mapa si algo cambia y ya no usa desenfoques',
@@ -2407,6 +2566,7 @@ async function init() {
   if (!IS_CAP && S.settings && !S.settings.wizardDone) wizard();
   // Android: botón atrás y vuelta de segundo plano
   if (IS_CAP) setTimeout(askNotifyPermission, 3000);
+  if (IS_CAP && LS.get('restEnd', 0) > Date.now()) window.Capacitor?.Plugins?.RestTimer?.start({ endAt: LS.get('restEnd', 0) }).catch(() => {});
   if (IS_CAP && LS.get('awake', false)) keepAwake(true);
   const CapApp = window.Capacitor?.Plugins?.App;
   if (CapApp) {
@@ -2417,7 +2577,8 @@ async function init() {
       if (S.route !== 'cabina') return go('cabina');
       (CapApp.minimizeApp || CapApp.exitApp).call(CapApp);
     });
-    CapApp.addListener('appStateChange', ({ isActive }) => { if (isActive && S.apkPending && $('#updProg')) { setTimeout(() => apkInstall().catch(() => {}), 600); }
+    CapApp.addListener('appStateChange', ({ isActive }) => { if (isActive) window.Capacitor?.Plugins?.RestTimer?.consumeStopped().then((r) => { if (r?.stopped) { LS.set('restEnd', 0); window.Capacitor.Plugins.LocalNotifications?.cancel({ notifications: [{ id: 777 }] }).catch(() => {}); if (S.route === 'herramientas') go('herramientas', false); } }).catch(() => {});
+      if (isActive && S.apkPending && $('#updProg')) { setTimeout(() => apkInstall().catch(() => {}), 600); }
       if (isActive && !S.connected) { S.wsFails = 0; connectHub(); } if (isActive && Date.now() - (S.lastUpdCheck || 0) > 3600e3) { S.lastUpdCheck = Date.now(); checkUpdate(false).catch(() => {}); } });
   }
   on('conn', async () => {

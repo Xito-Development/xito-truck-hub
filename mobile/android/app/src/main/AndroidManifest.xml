@@ -25,6 +25,8 @@
 
         </activity>
 
+        <receiver android:name=".RestStopReceiver" android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

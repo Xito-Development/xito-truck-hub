@@ -1,4 +1,4 @@
-# Xito Truck Hub 1.5.7
+# Xito Truck Hub 1.6.0
 
 HUB para Euro Truck Simulator 2 / American Truck Simulator y TruckersMP — Xito Development.
 
