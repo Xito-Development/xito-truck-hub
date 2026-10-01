@@ -11,7 +11,7 @@ Funciona en **Windows 10/11** y tiene app para **Android**.
 - **Historial de entregas:** cada viaje con su ruta en un mini mapa, ingresos, beneficio neto, consumo, multas, nota de conducción (A+ a E) y modo Real o Carrera.
 - **Estadísticas y recorridos:** rangos y niveles de conductor, logros, calendario de actividad, mapa de todo lo que has recorrido, velocidad, horarios, países, ciudades y camiones.
 - **Mapa en vivo:** jugadores de TruckersMP casi en tiempo real, tráfico, gasolineras, áreas de descanso, talleres, garajes y empresas, amigos, compañeros de VTC y convoy.
-- **Ruta recomendada:** calcula el camino más concurrido y el más corto hasta tu destino, y se recalcula si te sales.
+- **Ruta del GPS del juego:** lee la ruta real del GPS (memoria, solo lectura, permitido por TruckersMP) y la dibuja en el mapa y el mini mapa; si no es posible, calcula la más corta y la más concurrida.
 - **Overlay en el juego:** velocímetro, testigos, mini mapa con la ruta (zoom con F5), mensajes del camión, normas de TruckersMP, finanzas, combustible, tacógrafo y convoy. Tiene modo para directos (OBS).
 - **Avisos:** descanso, combustible, velocidad, daños, normas de TruckersMP, tráfico, amigos, eventos y bloqueos del fútbol en España (hayahora.futbol), con sonido y voz.
 - **TruckersMP:** perfil, sanciones, servidores, convoyes, tus eventos, VTC, noticias, normas y botón «Jugar».

@@ -35,6 +35,8 @@ class Bridge extends EventEmitter {
       this.fails = 0;
       if (m.t === 'tel') this.emit('tel', m);
       else if (m.t === 'ev') this.emit('ev', m);
+      else if (m.t === 'gps') this.emit('gps', m);
+      else if (m.t === 'gpsstatus') this.emit('gpsstatus', m);
       else if (m.t === 'status') { if (m.state === 'keyerror') this.emit('keyerror', m.msg); else this.emit('status', m); }
     });
     p.on('error', () => {});
@@ -52,6 +54,8 @@ class Bridge extends EventEmitter {
     const wait = Math.min(30000, 3000 * this.fails);
     this.retry = setTimeout(() => { if (!this.stopped) this.start(false); }, wait);
   }
+  // Órdenes para el puente (p. ej. activar la lectura del GPS)
+  sendCmd(obj) { if (!this.proc || this.demo) return false; try { this.proc.stdin.write(JSON.stringify(obj) + '\n'); return true; } catch { return false; } }
   // Botonera: envía una tecla al juego (a través del puente, que usa códigos de escaneo)
   sendKey(k, a = 'tap') {
     if (this.demo || !this.proc || process.platform !== 'win32') { this.emit('key', { k, a, simulated: true }); return false; }

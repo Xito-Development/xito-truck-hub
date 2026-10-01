@@ -45,6 +45,7 @@ const DEFAULTS = () => ({
     vtcBot: { enabled: false, url: '', token: '', discordId: '', driverName: '' },
     language: 'es',
     clock: 'auto', // auto | game | tmp | real
+    gpsMemory: true,
     discord: { webhook: '', onDelivery: true, onCancel: true, onFine: false, rpc: false, appId: '' },
     appearance: {
       accent: '', density: 'normal', radius: 1, fontScale: 1, motion: true, startPage: 'cabina',
@@ -125,7 +126,7 @@ class Store {
     return this.data.days[k];
   }
   updateSettings(patch) {
-    const allowed = ['theme', 'tmpId', 'vtcId', 'autoStart', 'startMinimized', 'demo', 'wizardDone', 'overlay', 'alerts', 'discord', 'units', 'appearance', 'goals', 'friends', 'updates', 'map', 'remote', 'language', 'tacho', 'vtcBot', 'costs', 'clock'];
+    const allowed = ['theme', 'tmpId', 'vtcId', 'autoStart', 'startMinimized', 'demo', 'wizardDone', 'overlay', 'alerts', 'discord', 'units', 'appearance', 'goals', 'friends', 'updates', 'map', 'remote', 'language', 'tacho', 'vtcBot', 'costs', 'clock', 'gpsMemory'];
     const clean = {};
     for (const k of allowed) if (k in patch) clean[k] = patch[k];
     // Normaliza IDs (solo números) y valores numéricos

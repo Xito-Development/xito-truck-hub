@@ -1,5 +1,6 @@
 // Navegador: ruta recomendada (la más concurrida) para el trabajo actual
 const world = require('./world');
+const world_ = world;
 const router = require('./router');
 const Traffic = require('./traffic');
 
@@ -47,6 +48,8 @@ class Navigator {
     return c ? { name: c.n, x: c.x, y: c.y } : null;
   }
   async compute({ game, from, to, toName } = {}) {
+    // Si el juego ya nos da su ruta real (memoria), esa es la buena
+    if (this.gameRoute && !from && !to) return this.gameRoute;
     const t = this.tracker.live;
     world.touchHeat();
     if (!from) {
@@ -81,11 +84,11 @@ class Navigator {
 // Distancia (en unidades del mapa) del camión a la ruta, y el índice del punto más cercano
 Navigator.prototype.offRoute = function () {
   const R = this.cache?.value, t = this.tracker.live?.truck;
-  if (!R || !t || !(R.popular || R.fastest)) return null;
+  if (!R || !t || !(R.gps || R.popular || R.fastest)) return null;
   const [x, y] = router.tf(R.game, t.x, t.z);
   let best = Infinity;
   // Vale cualquiera de las dos rutas (la del GPS suele coincidir con la más corta)
-  for (const route of [R.popular, R.fastest]) for (const p of route?.points || []) { const d = Math.hypot(p[0] - x, p[1] - y); if (d < best) best = d; }
+  for (const route of [R.gps, R.popular, R.fastest]) for (const p of route?.points || []) { const d = Math.hypot(p[0] - x, p[1] - y); if (d < best) best = d; }
   return best;
 };
 // Entre todas las rutas candidatas, la que más se parece a la distancia que marca el GPS del juego
@@ -125,12 +128,51 @@ Navigator.prototype.routeAsync = function (args, opts) {
         // Si el hilo no puede arrancar (p. ej. dentro del paquete), se calcula aquí mismo sin perder la petición
         console.warn('[rutas] hilo', e.message); this.workerBroken = true; this.worker = null;
         if (this.cacheDir) router.setCacheDir(this.cacheDir);
-        for (const p of this.pendingRoutes.values()) router.route(p.args, p.opts).then(p.ok, p.ko);
+        for (const p of this.pendingRoutes.values()) (p.kind === 'follow' ? router.follow(p.args) : router.route(p.args, p.opts)).then(p.ok, p.ko);
         this.pendingRoutes.clear();
       });
     } catch (e) { this.workerBroken = true; }
   }
-  if (!this.worker) { if (this.cacheDir) router.setCacheDir(this.cacheDir); return router.route(args, opts); }
-  return new Promise((ok, ko) => { const id = ++this.seq; this.pendingRoutes.set(id, { ok, ko, args, opts }); this.worker.postMessage({ id, args, opts }); });
+  if (!this.worker) { if (this.cacheDir) router.setCacheDir(this.cacheDir); return opts?.kind === 'follow' ? router.follow(args) : router.route(args, opts); }
+  return new Promise((ok, ko) => { const id = ++this.seq; this.pendingRoutes.set(id, { ok, ko, args, opts, kind: opts?.kind }); this.worker.postMessage({ id, args, opts, kind: opts?.kind }); });
+};
+// Ruta REAL del GPS del juego (leída de la memoria, solo lectura). pts = [x0, z0, x1, z1, …] en metros de mundo.
+Navigator.prototype.setGameRoute = async function (flat, distGame, onReady) {
+  if (!flat || flat.length < 4) { const had = !!this.gameRoute; this.gameRoute = null; if (had) { this.cache = null; onReady(null); } return; }
+  const t = this.tracker.live;
+  const game = String(t?.game).toLowerCase() === 'ats' ? 'ats' : (this.traffic.me && this.traffic.me.ServerType === 3 ? 'promods' : 'ets2');
+  const world = []; for (let i = 0; i + 1 < flat.length; i += 2) world.push([flat[i], flat[i + 1]]);
+  const seq = (this.gameSeq = (this.gameSeq || 0) + 1);
+  const build = async (points, units) => {
+    const locs = await world_.locations(game).catch(() => []);
+    const cities = locs.filter((l) => l.t === 'city');
+    const via = [];
+    const last = world[world.length - 1];
+    let dest = null, bd = Infinity;
+    for (const c of cities) { const d = Math.hypot(c.x - last[0], c.y - last[1]); if (d < bd) { bd = d; dest = c; } }
+    for (const c of cities) {
+      let best = Infinity, bi = 0;
+      for (let i = 0; i < world.length; i += 2) { const d = Math.hypot(world[i][0] - c.x, world[i][1] - c.y); if (d < best) { best = d; bi = i; } }
+      const dS = Math.hypot(c.x - world[0][0], c.y - world[0][1]), dE = Math.hypot(c.x - last[0], c.y - last[1]);
+      if (best < 1500 && dS > 3000 && dE > 3000) via.push({ name: c.n, at: bi, x: c.x, y: c.y });
+    }
+    via.sort((a, b) => a.at - b.at);
+    const gps = { points, units, via: via.slice(0, 12).map(({ at, ...v }) => v), source: 'memory', distGame: distGame || 0 };
+    const value = { game, gps, popular: null, fastest: null, alts: [], source: 'memory', dest: dest && bd < 6000 ? { name: dest.n, x: dest.x, y: dest.y } : { name: 'Destino del GPS', x: last[0], y: last[1] }, computedAt: Date.now() };
+    return value;
+  };
+  // 1) al instante: los nodos del GPS unidos en línea recta
+  const raw = world.map(([x, z]) => router.tf(game, x, z).map(Math.round));
+  let units = 0; for (let i = 1; i < raw.length; i++) units += Math.hypot(raw[i][0] - raw[i - 1][0], raw[i][1] - raw[i - 1][1]);
+  const quick = await build(raw, Math.round(units));
+  if (seq !== this.gameSeq) return;
+  this.gameRoute = quick; this.cache = { key: 'mem', value: quick }; onReady(quick);
+  // 2) después: cada tramo ajustado a las carreteras del mapa
+  try {
+    const fine = await this.routeAsync({ game, pts: world }, { kind: 'follow' });
+    if (seq !== this.gameSeq) return;
+    const v = await build(fine.points, fine.units);
+    this.gameRoute = v; this.cache = { key: 'mem', value: v }; onReady(v);
+  } catch {}
 };
 module.exports = Navigator;

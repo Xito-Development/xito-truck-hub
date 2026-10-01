@@ -169,7 +169,11 @@ async function directJson(url, timeout = 15000) {
     status = r.status; body = await r.text();
   }
   if (body && typeof body === 'object') return body;
-  const text = String(body || '');
+  let text = String(body || '');
+  // Cloudflare a veces rechaza las peticiones «de app»: se repite con un navegador interno invisible
+  if (IS_CAP && /^\s*</.test(text) && !/laliga|bloquead|orden judicial/i.test(text) && window.Capacitor?.Plugins?.ApkUpdater?.webGet) {
+    try { const w = await window.Capacitor.Plugins.ApkUpdater.webGet({ url }); if (w?.body) return JSON.parse(w.body); } catch {}
+  }
   if (/^\s*</.test(text) && /laliga|bloquead|orden judicial|blocked/i.test(text)) throw new Error('Tu operador está bloqueando TruckersMP por el fútbol (LaLiga). Volverá cuando acabe el partido.');
   if (/^\s*</.test(text)) throw new Error(S.laliga?.blocked ? 'Bloqueado por LaLiga (hay fútbol). Vuelve a intentarlo cuando termine.' : status === 404 ? 'No encontrado' : 'TruckersMP no responde desde esta red. Si hay fútbol, puede ser por los bloqueos de LaLiga; si no, prueba en un rato.');
   if (status >= 400 && !text) throw new Error(`Error ${status}`);
@@ -326,6 +330,7 @@ function onHubMsg(msg) {
   if (msg.t === 'convoy') { S.convoy = msg.d; emit('convoy'); }
   if (msg.t === 'laliga') { S.laliga = msg.d; renderLaliga(); }
   if (msg.t === 'update') emit('update', msg.d);
+  if (msg.t === 'gpsstatus') { S.gpsStatus = msg.d; const g = document.getElementById('gpsSt'); if (g) g.textContent = msg.d.msg || ''; }
   if (msg.t === 'route-error') { S.routeError = msg.d.error; S.navRoute = null; emit('route'); }
   if (msg.t === 'route') S.routeError = null;
   if (msg.t === 'update-available' && msg.d && (msg.d.force || LS.get('skipUpdate', '') !== msg.d.latest)) showUpdate(msg.d);
@@ -821,10 +826,10 @@ VIEWS.cabina = (root) => {
       if (se && slow) se.innerHTML = sc ? `<span class="grade g-${sc.grade.replace('+', 'p')}">${sc.grade}</span><div><b>Nota de conducción: ${sc.score}</b><small>${sc.mode === 'real' ? 'Viaje Real' : 'Modo Carrera'}${sc.penalties.length ? ' · ' + esc(sc.penalties.slice(0, 2).map((p) => `${p.name} −${p.points}`).join(' · ')) : ' · sin penalizaciones'}</small></div>` : '';
       const rh = $('#jRoute'), nv = nextVia();
       if (rh && slow) {
-        const via = (S.navRoute?.popular?.via || []).map((v) => v.name);
+        const via = ((S.navRoute?.gps || S.navRoute?.popular)?.via || []).map((v) => v.name);
         rh.classList.toggle('hidden', !S.navRoute);
         if (!S.navRoute && S.routeError && S.live?.job?.onJob) { rh.classList.remove('hidden'); rh.innerHTML = `${ic('trafico')}<span><b>Sin ruta recomendada</b>${esc(S.routeError)}</span>${ic('mapa')}`; }
-        if (S.navRoute) rh.innerHTML = `${ic('trafico')}<span><b>Ruta más concurrida</b>${nv ? `Siguiente: ${esc(nv.name)} · ${U.dist(nv.km, 0)} en línea recta` : via.length ? esc(via.join(' → ')) : 'Sigue tu GPS'}</span>${ic('mapa')}`;
+        if (S.navRoute) rh.innerHTML = `${ic('trafico')}<span><b>${S.navRoute.gps ? 'Ruta del GPS del juego' : 'Ruta más concurrida'}</b>${nv ? `Siguiente: ${esc(nv.name)} · ${U.dist(nv.km, 0)} en línea recta` : via.length ? esc(via.join(' → ')) : 'Sigue tu GPS'}</span>${ic('mapa')}`;
       }
       $('#jFines').textContent = S.curLive?.fines ? `${S.curLive.fines} multa${S.curLive.fines > 1 ? 's' : ''}` : '';
     }
@@ -878,7 +883,7 @@ function renderLaliga() {
 function nextVia() {
   const R = S.navRoute, t = S.live?.truck;
   if (!R || !t || !(t.x || t.z)) return null;
-  const via = (R.popular || R.fastest)?.via || [];
+  const via = (R.gps || R.popular || R.fastest)?.via || [];
   S.viaPassed = S.viaPassed || new Set();
   for (const v of via) if (Math.hypot(v.x - t.x, v.y - t.z) < 2500) S.viaPassed.add(v.name);
   const rest = via.filter((v) => !S.viaPassed.has(v.name));
@@ -1277,9 +1282,9 @@ VIEWS.trafico = (root) => {
       const d = S.connected ? await api(`/api/traffic/server?game=${s.game}&url=${s.url}`) : await directJson(`https://traffic.krashnz.com/api/v4/server/${s.game}/${s.url}`);
       const locs = (d.traffic || []).flatMap((c) => c.locations.map((l) => ({ ...l, country: c.country }))).filter((l) => l.players > 0).sort((a, b) => b.players - a.players);
       $('#hotAll').innerHTML = locs.length ? `<div class="list">${locs.slice(0, 60).map((l) =>
-        `<div class="item"><span class="ico ${l.severity === 'congested' ? 'bad' : ''}" style="color:${esc(l.severityColour)}">${ic(l.type === 'road' ? 'truck' : 'vtc')}</span>
-        <span class="grow"><span class="t">${esc(l.name)}</span><span class="s">${esc(l.country)} · ${l.type === 'road' ? 'Carretera' : 'Ciudad'}</span></span>
-        ${sevPill(l.severity)}<b class="num" style="font-size:19px;min-width:48px;text-align:right">${n0(l.players)}</b></div>`).join('')}</div>` : '<p class="muted">Servidor vacío.</p>';
+        `<div class="item traf-item"><span class="ico ${l.severity === 'congested' ? 'bad' : ''}" style="color:${esc(l.severityColour)}">${ic(l.type === 'road' ? 'truck' : 'vtc')}</span>
+        <span class="grow"><span class="t">${esc(l.name)}</span><span class="s">${esc(l.country || '')}${l.country ? ' · ' : ''}${l.type === 'road' ? 'Carretera' : 'Ciudad'} ${sevPill(l.severity)}</span></span>
+        <b class="num">${n0(l.players)}</b></div>`).join('')}</div>` : '<p class="muted">Servidor vacío.</p>';
     } catch (e) { $('#hotAll').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
   };
   const load = async () => {
@@ -1290,7 +1295,7 @@ VIEWS.trafico = (root) => {
       if (!sel) sel = S.traffic?.server?.url || servers[0]?.url;
       const top = servers.flatMap((s) => (s.traffic || []).map((t) => ({ ...t, srv: s.longName }))).sort((a, b) => b.players - a.players).slice(0, 8);
       $('#hotTop').innerHTML = `<h2>Lo más concurrido ahora</h2><div class="list">${top.map((l) =>
-        `<div class="item"><span class="ico" style="color:${esc(l.severityColour)}">${ic(l.type === 'road' ? 'truck' : 'vtc')}</span><span class="grow"><span class="t">${esc(l.name)}</span><span class="s">${esc(l.srv)}</span></span>${sevPill(l.severity)}<b class="num" style="font-size:19px;min-width:48px;text-align:right">${n0(l.players)}</b></div>`).join('')}</div>`;
+        `<div class="item traf-item"><span class="ico" style="color:${esc(l.severityColour)}">${ic(l.type === 'road' ? 'truck' : 'vtc')}</span><span class="grow"><span class="t">${esc(l.name)}</span><span class="s">${esc(l.srv)} ${sevPill(l.severity)}</span></span><b class="num">${n0(l.players)}</b></div>`).join('')}</div>`;
       $('#srvChips').innerHTML = servers.filter((s) => (s.players ?? 1) > 0).map((s) => `<button class="chip" data-u="${s.url}" aria-pressed="${s.url === sel}">${esc(s.longName)}${s.game === 'ats' ? ' (ATS)' : ''}</button>`).join('');
       $('#srvChips').onclick = (e) => { const c = e.target.closest('[data-u]'); if (!c) return; sel = c.dataset.u; $$('#srvChips .chip').forEach((x) => x.setAttribute('aria-pressed', x === c)); renderAll(); };
       renderAll();
@@ -1871,8 +1876,19 @@ function bindPrefs(root) {
 }
 
 // ---------- versiones y actualizaciones ----------
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.7.0';
 const CHANGELOG = {
+  '1.7.0': [
+    'Ruta REAL del GPS del juego: el HUB la lee de la memoria (solo lectura, permitido por TruckersMP) y la dibuja en el mini mapa y en el mapa',
+    'Funciona también en conducción libre y cuando cambias el destino en el GPS; los tramos se ajustan a las carreteras',
+    'Si tu versión del juego no es compatible, se usa la ruta calculada como hasta ahora (y se puede arreglar desde GitHub sin nueva versión)',
+    'Ajustes → Overlay: interruptor «Leer la ruta real del GPS del juego» con su estado'
+  ],
+  '1.6.2': [
+    'Móvil sin PC: TruckersMP, el mapa en vivo y los jugadores vuelven a cargar (se usa un navegador interno cuando Cloudflare rechaza la petición)',
+    'Tráfico: los nombres de las zonas ya no desaparecen con letra grande; la etiqueta va debajo del nombre',
+    'Si el mapa no puede cargar, lo dice dentro del propio mapa y lo reintenta solo'
+  ],
   '1.6.1': [
     'Tráfico funciona en el móvil sin el PC (zonas más concurridas de todos los servidores)',
     'Si la zona de tráfico no carga, se explica el motivo y hay un botón «Reintentar» (antes se quedaba cargando)',
@@ -2186,6 +2202,8 @@ VIEWS.ajustes = (root) => {
         <div class="chips" id="ovWidgets" style="margin:4px 0 8px">${[['speed', 'Velocímetro'], ['lamps', 'Testigos'], ['nav', 'Navegación y mini mapa'], ['messages', 'Mensajes'], ['finance', 'Finanzas'], ['damage', 'Daños'], ['job', 'Trabajo'], ['tacho', 'Tacógrafo'], ['convoy', 'Convoy'], ['fuel', 'Combustible']]
           .map(([k, l]) => `<button class="chip" data-wg="${k}" aria-pressed="${ov.widgets?.[k]?.on !== false && !(k === 'damage' && !ov.widgets?.[k]?.on)}">${l}</button>`).join('')}</div>
         ${sw('ovRotate', ov.mapRotate !== false, 'Mini mapa girando con el camión')}
+        ${IS_CAP ? '' : sw('gpsMem', S.settings?.gpsMemory !== false, 'Leer la ruta real del GPS del juego', 'Lectura de memoria solo de lectura, permitida por TruckersMP. Si tu versión del juego no es compatible, se usa la ruta calculada')}
+        ${IS_CAP ? '' : `<p class="muted" style="font-size:12.5px;margin:-4px 0 10px" id="gpsSt">${S.gpsStatus ? esc(S.gpsStatus.msg) : ''}</p>`}
         <div class="setting"><div><b>Ruta en el mini mapa</b><small>La del GPS del juego suele coincidir con la más corta</small></div>${segs('ovRoute', ov.routeMode || 'gps', [['gps', 'Como el GPS'], ['popular', 'Más concurrida']])}</div>
         <div class="setting"><div><b>Jugadores en el mini mapa</b><small>Hasta qué distancia se muestran</small></div>${segs('ovRange', String(ov.playerRange ?? 1.5), [['0.5', '500 m'], ['1', '1 km'], ['1.5', '1,5 km'], ['3', '3 km'], ['6', '6 km']])}</div>
         ${IS_CAP ? '' : sw('ovF5', ov.f5Zoom !== false, 'F5 cambia el zoom del mini mapa', 'La tecla sigue llegando al juego')}
@@ -2290,6 +2308,7 @@ VIEWS.ajustes = (root) => {
     if ($('#ovPlace')) $('#ovPlace').onclick = () => post('/api/overlay', { action: 'edit' });
     if ($('#ovWidgets')) $('#ovWidgets').onclick = (e) => { const c = e.target.closest('[data-wg]'); if (!c) return; const v = c.getAttribute('aria-pressed') !== 'true'; c.setAttribute('aria-pressed', v); save({ overlay: { widgets: { [c.dataset.wg]: { on: v } } } }); };
     tog('ovRotate', (v) => save({ overlay: { mapRotate: v } }));
+    tog('gpsMem', (v) => save({ gpsMemory: v }));
     if ($('#ovRoute')) $('#ovRoute').onclick = (e) => { const c = e.target.closest('[data-v]'); if (!c) return; $$('#ovRoute [data-v]').forEach((x) => x.setAttribute('aria-pressed', x === c)); save({ overlay: { routeMode: c.dataset.v } }); };
     if ($('#ovRange')) $('#ovRange').onclick = (e) => { const c = e.target.closest('[data-v]'); if (!c) return; $$('#ovRange [data-v]').forEach((x) => x.setAttribute('aria-pressed', x === c)); save({ overlay: { playerRange: +c.dataset.v } }); };
     tog('ovF5', (v) => save({ overlay: { f5Zoom: v } }));

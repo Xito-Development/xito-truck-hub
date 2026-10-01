@@ -1,0 +1,105 @@
+{
+  "game": "Euro Truck Simulator 2",
+  "module": "eurotrucks2.exe",
+  "arch": "x64",
+  "game_version": "1.61.1.1",
+  "build_hash": "6949e633e77902f7e023819d3131cc6ccce3707f",
+  "access": "PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION (solo lectura)",
+
+  "pointer_chain": {
+    "description": "obj = [eurotrucks2.exe + global_rva]; sub = obj + nav_offset + sub_offset; holder = [sub + holder_offset]; route_array = holder ? holder + array_offset : sub + fallback_array_offset",
+    "global_rva": "0x36AE6D8",
+    "nav_offset": "0x4128",
+    "sub_offset": "0x8",
+    "holder_offset": "0x20",
+    "array_offset": "0x78",
+    "fallback_array_offset": "0x28",
+    "expression": "[[eurotrucks2.exe+0x36AE6D8]+0x4130+0x20]+0x78",
+    "notes": "obj+0x4128 es el objeto de navegación (vtable RVA 0x2253EC0); su sub-objeto en +0x8 (vtable RVA 0x22CC6C8) expone el array de ruta con su método virtual +0x40 (RVA 0x8B0AC0). En nav+0x274/+0x278 están distancia (m, escala de juego) y tiempo (s) restantes, los que lee el SDK."
+  },
+
+  "array_layout": {
+    "type": "prism::array_t<route_item_t>",
+    "fields": {
+      "vtable": "0x00",
+      "data_ptr": "0x08",
+      "count": "0x10",
+      "capacity": "0x18",
+      "allocator": "0x20"
+    },
+    "point_count": "u64 en route_array + 0x10",
+    "data_pointer": "u64 en route_array + 0x08"
+  },
+
+  "route_item": {
+    "size": 48,
+    "stride_bytes": 48,
+    "order": "del camión (índice 0) al destino (último, dist = 0)",
+    "fields": {
+      "kind": {
+        "offset": "0x00",
+        "type": "u32",
+        "values": {
+          "0": "nodo de carretera",
+          "1": "curva de navegación dentro de un prefab"
+        }
+      },
+      "index": {
+        "offset": "0x04",
+        "type": "i32",
+        "notes": "-1 si kind=0; índice de curva/nodo del prefab si kind=1"
+      },
+      "ptr": {
+        "offset": "0x08",
+        "type": "u64",
+        "notes": "kind=0: puntero a nodo del mapa; kind=1: puntero a prefab_item_t"
+      },
+      "dist_to_end": {
+        "offset": "0x24",
+        "type": "f32",
+        "units": "m en escala de juego (~19x mundo en carretera, 3x en ciudad)"
+      },
+      "time_to_end": { "offset": "0x28", "type": "f32", "units": "s" }
+    }
+  },
+
+  "point_format": {
+    "kind_0_node": {
+      "location": "[item.ptr + 0x00]",
+      "type": "int32 x3, punto fijo",
+      "order": "x, y, z",
+      "scale": "1/256 (valor_int32 / 256.0 = metros de mundo)",
+      "spacing_bytes": 4,
+      "coords": "mismo sistema que la telemetría truck.x / truck.z (x este, z sur, y altura)"
+    },
+    "kind_1_prefab": {
+      "local_pos": "desc = [[item.ptr+0x90]+0xF0]; rec = desc + u32[desc+0x5C] + index*0xBC; flag=u8[rec]; id=u16[rec+1]; local = flag==0 ? desc+u32[desc+0x30]+id*0x68+0x10 : desc+u32[desc+0x34]+id*0x84+0x1C (f32 x,y,z)",
+      "placement": "item.ptr + 0x130: f32 x,y,z (relativo a sector) | i16 sector_x, sector_z | f32 quat w,x,y,z",
+      "world": "(sector_x*512 + px, py, sector_z*512 + pz) + rotate(quat, local)"
+    },
+    "world_vs_game_distance": "dist_to_end usa escala de juego; la longitud de la polilínea (x,z) está en metros de mundo"
+  },
+
+  "aob": {
+    "global": {
+      "pattern": "48 8B 35 ?? ?? ?? ?? 49 8B DF 48 85 F6 74 ?? 48 8B 06 48 8B CE 44 8B 35",
+      "instruction": "mov rsi, [rip+disp32]",
+      "resolve": "global_rva = match_rva + 7 + int32(match+3)",
+      "found_at_rva": "0x42C884",
+      "unique_in_text": true
+    },
+    "nav_offset": {
+      "pattern": "48 81 C3 ?? ?? ?? ?? 0F 84 ?? ?? ?? ?? BA 01 00 00 00 48 8B CF E8",
+      "instruction": "add rbx, imm32",
+      "resolve": "nav_offset = u32(match+3)",
+      "found_at_rva": "0x42C8FD",
+      "unique_in_text": true
+    },
+    "route_getter": {
+      "pattern": "48 8B 01 48 8B D9 FF 50 20 84 C0 74 ?? 48 8B 53 ?? 48 8D 4B ?? 48 85 D2 48 8D 42 ?? 48 0F 44 C1",
+      "resolve": "holder_offset = u8(match+16); fallback_array_offset = u8(match+20); array_offset = u8(match+27)",
+      "found_at_rva": "0x8B0AC6",
+      "unique_in_text": true
+    }
+  }
+}

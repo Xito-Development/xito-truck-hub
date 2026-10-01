@@ -1,9 +1,9 @@
 {
-  "latest": "1.6.1",
+  "latest": "1.7.0",
   "mandatory": false,
   "notes": [
-    "Tráfico sin PC en el móvil",
-    "Arreglos de carga infinita y avisos con doble marco"
+    "La ruta real del GPS del juego en el mini mapa y en el mapa",
+    "Funciona en conducción libre y al cambiar el destino"
   ],
   "exe": "https://github.com/Xito-Development/xito-truck-hub/releases/latest/download/XitoTruckHub-Setup.exe",
   "apk": "https://github.com/Xito-Development/xito-truck-hub/releases/latest/download/XitoTruckHub.apk",

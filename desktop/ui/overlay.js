@@ -157,9 +157,10 @@ function update() {
   for (const [id] of LAMPS) { const el = $('#L-' + id); if (el) el.classList.toggle('on', !!st[id]); }
   // navegación
   let via = null;
-  if (route && route.popular && t.x !== undefined) {
-    for (const v of route.popular.via || []) if (Math.hypot(v.x - t.x, v.y - t.z) < 2500) passed.add(v.name);
-    via = (route.popular.via || []).find((v) => !passed.has(v.name));
+  const rv = route && (route.gps || route.popular || route.fastest);
+  if (rv && t.x !== undefined) {
+    for (const v of rv.via || []) if (Math.hypot(v.x - t.x, v.y - t.z) < 2500) passed.add(v.name);
+    via = (rv.via || []).find((v) => !passed.has(v.name));
   }
   const nd = $('#navDest'), ns = $('#navSub'), ndi = $('#navDist');
   if (nd) nd.textContent = j && j.onJob ? `${j.toCity}` : 'Conducción libre';

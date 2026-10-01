@@ -709,3 +709,12 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 /* Un aviso dentro de otra tarjeta no lleva doble marco */
 .card .card.empty, .card .card.play-card { border: 0; background: transparent; box-shadow: none; padding: 18px 0 6px; margin: 0; animation: none; }
 .card .card.empty:hover { transform: none; box-shadow: none; }
+
+/* Filas: el texto principal siempre tiene sitio (aunque el móvil use letra grande) */
+.item .grow { flex: 1 1 0; min-width: 0; }
+.item .grow .t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .grow .s { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; white-space: normal; }
+.traf-item .num { font-size: 19px; min-width: 44px; text-align: right; flex: none; }
+.traf-item .s .pill { font-size: 11px; padding: 1px 8px; }
+.map-status { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; max-width: 80%; padding: 18px; border-radius: 18px; background: color-mix(in srgb, var(--surface) 94%, transparent); border: 1px solid var(--line); z-index: 4; }
+.map-status svg { width: 30px; height: 30px; color: var(--muted); } .map-status span { color: var(--muted); font-size: 13px; }

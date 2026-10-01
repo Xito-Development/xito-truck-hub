@@ -8,13 +8,14 @@
   };
   const LEVELS = [[1, 1, 0], [2, 3, 1000], [3, 9, 4000], [4, 27, 13000]]; // [nivel, paso, desplazamiento]
   const imgCache = new Map();
+  const tileStats = { ok: 0, bad: 0 };
   function img(url, onload) {
     let e = imgCache.get(url);
     if (e) { imgCache.delete(url); imgCache.set(url, e); return e; }
     const im = new Image();
     e = { im, ok: false, bad: false };
-    im.onload = () => { e.ok = true; onload(); };
-    im.onerror = () => { e.bad = true; };
+    im.onload = () => { e.ok = true; tileStats.ok++; onload(); };
+    im.onerror = () => { e.bad = true; tileStats.bad++; };
     im.src = url;
     imgCache.set(url, e);
     if (imgCache.size > 500) imgCache.delete(imgCache.keys().next().value);
@@ -98,6 +99,7 @@
         </div>
         <div class="map-tip hidden" id="mapTip"></div>
         <div class="map-info" id="mapInfo"></div>
+        <div class="map-status hidden" id="mapStatus"></div>
         <div class="map-legend" id="mapLegend"><span><i style="background:var(--good)"></i>Fluido</span><span><i style="background:var(--warn)"></i>Denso</span><span><i style="background:var(--bad)"></i>Congestionado</span></div>
       </div>
       <section class="card" style="margin-top:16px" id="routeCard"></section>
@@ -171,13 +173,13 @@
           ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
           pts.forEach((p, i) => { const [x, y] = toS(p[0], p[1], false); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke(); ctx.setLineDash([]);
         };
-        const other = routeView === 'popular' ? R.fastest : R.popular;
+        const other = routeView === 'gps' ? null : routeView === 'popular' ? R.fastest : R.popular;
         if (cfg.alt && other) line(other.points, C.getPropertyValue('--muted'), 3, [8, 7]);
-        const full = (R[routeView] || R.popular || R.fastest).points;
+        const full = (R[routeView] || R.gps || R.popular || R.fastest).points;
         let from = 0;
         const tt = S.live?.truck; if (tt && (tt.x || tt.z)) { const [mx, my] = tf(tt.x, tt.z); let bd = Infinity; full.forEach((p, i) => { const d = Math.hypot(p[0] - mx, p[1] - my); if (d < bd) { bd = d; from = i; } }); }
         line(full.slice(Math.max(0, from - 1)), accent, 5);
-        const cur = R[routeView] || R.popular || R.fastest;
+        const cur = R[routeView] || R.gps || R.popular || R.fastest;
         (cur.via || []).forEach((v, i) => {
           const [x, y] = toS(v.x, v.y);
           ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fill();
@@ -498,12 +500,13 @@
       if (!R) {
         box.innerHTML = `<h2>Ruta recomendada</h2><p class="muted">${esc(S.routeError && S.live?.job?.onJob ? S.routeError : 'Cuando aceptes un trabajo calcularé por dónde pasa la ruta más concurrida de TruckersMP. También puedes planificar una ruta aquí.')}</p>${planner}`;
       } else {
-        const P = R.popular, F = R.fastest, cur = R[routeView] || P || F;
+        if (R.gps && !R.popular && routeView !== 'gps') routeView = 'gps';
+        const P = R.popular, F = R.fastest, cur = R[routeView] || R.gps || P || F;
         // Las distancias del mapa no están en km del juego: se escalan con la distancia real del GPS
         const navKm = S.live?.job?.onJob ? (S.live.nav?.distance || 0) / 1000 : 0;
-        const estKm = (r) => (navKm > 0 && F && F.units > 0 ? U.dist(navKm * r.units / F.units, 0) : '—');
+        const estKm = (r) => (r.distGame ? U.dist(r.distGame / 1000, 0) : navKm > 0 && F && F.units > 0 ? U.dist(navKm * r.units / F.units, 0) : '—');
         box.innerHTML = `<h2>Ruta hacia ${esc(R.dest?.name || 'el destino')} <span class="row" style="gap:6px"><span class="chips" id="rvSeg">
-            <button class="chip" data-v="popular" aria-pressed="${routeView === 'popular'}">Más concurrida</button><button class="chip" data-v="fastest" aria-pressed="${routeView === 'fastest'}">Más corta</button></span>
+            ${R.gps ? `<button class="chip" data-v="gps" aria-pressed="${routeView === 'gps'}">GPS del juego</button>` : ''}${R.popular ? `<button class="chip" data-v="popular" aria-pressed="${routeView === 'popular'}">Más concurrida</button>` : ''}${R.fastest ? `<button class="chip" data-v="fastest" aria-pressed="${routeView === 'fastest'}">Más corta</button>` : ''}</span>
             <button class="btn ghost" data-rc style="padding:6px 10px" title="Recalcular">${ic('refresh')}</button></span></h2>
           <div class="grid g3 keep" style="gap:12px;margin-bottom:14px">
             <div class="kpi"><span class="v" style="font-size:26px">${estKm(cur)}</span><span class="l">Distancia estimada</span></div>
@@ -597,13 +600,21 @@
     if (cfg.follow) centerMe();
     loadLocs(); loadPlayers().then(loadHeat); loadTrail(); loadFriends(); renderRoute();
     if (S.live?.job?.onJob && !S.navRoute) loadRoute();
+    // Si tras unos segundos no ha cargado ninguna zona del mapa, se explica en vez de dejarlo en negro
+    const ivS = setInterval(() => {
+      const st = $('#mapStatus'); if (!st) return;
+      const fail = tileStats.ok === 0 && tileStats.bad > 3;
+      st.classList.toggle('hidden', !fail);
+      if (fail) st.innerHTML = `${ic('mapa')}<b>No se puede cargar el mapa</b><span>El servidor de mapas no responde desde esta red. Se reintentará solo.</span>`;
+      if (fail) { imgCache.forEach((e, k) => { if (e.bad) imgCache.delete(k); }); tileStats.bad = 0; dirty = true; }
+    }, 6000);
     loadVtc(); const iv5 = setInterval(loadVtc, 45000); const iv6 = setInterval(loadArea, 1500); const iv = setInterval(loadPlayers, 12000), iv2 = setInterval(loadFriends, 30000), iv3 = setInterval(loadHeat, 20000);
     let lastJobKey = null;
     const offs = [on('tel', onTel), on('theme', () => (dirty = true)), on('convoy', () => (dirty = true)), on('route', () => { dirty = true; renderRoute(); if (S.navRoute?.rerouted) toast('Ruta recalculada', 'Te habías salido de la ruta recomendada.', 'mapa', 'alt'); }),
       on('job', (d) => { if (d.phase !== 'started') { S.navRoute = null; renderRoute(); dirty = true; } }),
       on('tel', () => { const j = S.live?.job; const k = j && j.onJob ? j.toCity + j.cargo : null; if (k !== lastJobKey) { lastJobKey = k; if (k && !planning) loadRoute(); } }),
       on('conn', () => { loadPlayers(); loadTrail(); loadFriends(); loadHeat(); })];
-    return () => { clearInterval(iv6); clearInterval(iv5); cancelAnimationFrame(raf); clearInterval(iv); clearInterval(iv2); clearInterval(iv3); ro.disconnect(); offs.forEach((f) => f()); };
+    return () => { clearInterval(ivS); clearInterval(iv6); clearInterval(iv5); cancelAnimationFrame(raf); clearInterval(iv); clearInterval(iv2); clearInterval(iv3); ro.disconnect(); offs.forEach((f) => f()); };
   };
 
   // Mini mapa estático del recorrido de un trabajo (hoja de detalle)

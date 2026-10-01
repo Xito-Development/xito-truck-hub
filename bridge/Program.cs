@@ -32,6 +32,7 @@ public static class Program
         Console.OutputEncoding = System.Text.Encoding.UTF8;
         Status("starting");
         new Thread(KeyLoop) { IsBackground = true }.Start();
+        new Thread(() => GpsReader.Loop(Emit)) { IsBackground = true, Priority = ThreadPriority.BelowNormal }.Start();
         while (true)
         {
             SCSSdkTelemetry tel = null;
@@ -152,6 +153,18 @@ public static class Program
             try {
                 using var doc = JsonDocument.Parse(line);
                 var r = doc.RootElement;
+                if (r.TryGetProperty("cmd", out var cmd))
+                {
+                    if (cmd.GetString() == "gps") GpsReader.Enabled = r.GetProperty("on").GetBoolean();
+                    else if (cmd.GetString() == "gpscfg")
+                    {
+                        if (r.TryGetProperty("global", out var a1)) GpsReader.AobGlobal = a1.GetString();
+                        if (r.TryGetProperty("nav", out var a2)) GpsReader.AobNav = a2.GetString();
+                        if (r.TryGetProperty("route", out var a3)) GpsReader.AobRoute = a3.GetString();
+                        if (r.TryGetProperty("itemSize", out var a4)) GpsReader.ItemSize = a4.GetInt32();
+                    }
+                    continue;
+                }
                 var keys = r.GetProperty("k").GetString().Split('+');
                 var a = r.TryGetProperty("a", out var av) ? av.GetString() : "tap";
                 if (a == "down") { foreach (var k in keys) Key(k.Trim(), false); }

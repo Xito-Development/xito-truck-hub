@@ -1,6 +1,13 @@
 package com.xitodev.truckhub;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.os.Handler;
+import android.os.Looper;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.webkit.WebSettings;
+import android.webkit.CookieManager;
 import android.content.Context;
 import android.graphics.Color;
 import android.view.Window;
@@ -123,6 +130,58 @@ public class ApkUpdater extends Plugin {
             } catch (Exception ignored) { }
             call.resolve(r);
         });
+    }
+
+    // Descarga una dirección con un navegador interno invisible (el mismo motor que Chrome).
+    // Sirve para servicios protegidos por Cloudflare que rechazan las peticiones «de app».
+    private WebView ghost;
+    private boolean ghostBusy = false;
+    private final java.util.ArrayDeque<PluginCall> ghostQueue = new java.util.ArrayDeque<>();
+
+    @PluginMethod
+    public void webGet(PluginCall call) {
+        call.setKeepAlive(true);
+        getActivity().runOnUiThread(() -> { ghostQueue.add(call); nextGhost(); });
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void nextGhost() {
+        if (ghostBusy || ghostQueue.isEmpty()) return;
+        final PluginCall call = ghostQueue.poll();
+        final String url = call.getString("url");
+        if (url == null || !url.startsWith("https://")) { call.reject("Dirección no válida"); nextGhost(); return; }
+        ghostBusy = true;
+        if (ghost == null) {
+            ghost = new WebView(getContext());
+            WebSettings ws = ghost.getSettings();
+            ws.setJavaScriptEnabled(true); ws.setDomStorageEnabled(true);
+            CookieManager.getInstance().setAcceptCookie(true);
+            CookieManager.getInstance().setAcceptThirdPartyCookies(ghost, true);
+        }
+        final Handler h = new Handler(Looper.getMainLooper());
+        final boolean[] done = { false };
+        final Runnable finish = () -> { done[0] = true; ghostBusy = false; ghost.stopLoading(); nextGhost(); };
+        final Runnable timeout = () -> { if (!done[0]) { call.reject("El servicio no responde"); call.release(getBridge()); finish.run(); } };
+        h.postDelayed(timeout, 25000);
+        ghost.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String u) {
+                if (done[0]) return;
+                // Tras la comprobación de Cloudflare la página se recarga sola: se espera a que sea JSON
+                view.evaluateJavascript("(function(){var t=document.body?document.body.innerText:'';return t;})()", (res) -> {
+                    if (done[0] || res == null) return;
+                    String txt;
+                    try { txt = new org.json.JSONArray("[" + res + "]").getString(0); } catch (Exception e) { txt = ""; }
+                    String tt = txt.trim();
+                    if (tt.startsWith("{") || tt.startsWith("[")) {
+                        h.removeCallbacks(timeout);
+                        JSObject r = new JSObject(); r.put("body", tt);
+                        call.resolve(r); call.release(getBridge());
+                        finish.run();
+                    }
+                });
+            }
+        });
+        ghost.loadUrl(url);
     }
 
     @PluginMethod

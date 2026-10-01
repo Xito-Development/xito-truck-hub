@@ -53,10 +53,31 @@ function start({ dataDir, resourcesDir, uiDir, port = 25580, hooks = {}, version
     }, 8000);
   });
 
+  // Ruta REAL del GPS del juego leída de la memoria (solo lectura). Tiene prioridad sobre las calculadas.
+  let gpsStatus = { ok: null, msg: '' };
+  bridge.on('gpsstatus', (m) => { gpsStatus = { ok: m.ok, msg: m.msg }; srv.broadcast({ t: 'gpsstatus', d: gpsStatus }); });
+  bridge.on('gps', (m) => {
+    if (store.data.settings.gpsMemory === false) return;
+    nav.setGameRoute(m.pts, m.dist, (r) => srv.broadcast({ t: 'route', d: r }));
+  });
+  const syncGpsSetting = () => bridge.sendCmd({ cmd: 'gps', on: store.data.settings.gpsMemory !== false });
+  setTimeout(syncGpsSetting, 3000);
+  { const upd = store.updateSettings.bind(store); store.updateSettings = (...a) => { const r = upd(...a); try { syncGpsSetting(); if (store.data.settings.gpsMemory === false && nav.gameRoute) { nav.gameRoute = null; nav.cache = null; srv.broadcast({ t: 'route', d: null }); } } catch {} return r; }; }
+  // Patrones actualizados desde GitHub (si una actualización del juego los cambia, se arregla sin nueva versión)
+  setTimeout(async () => {
+    try {
+      const r = await fetch('https://raw.githubusercontent.com/Xito-Development/xito-truck-hub/main/gps-offsets.json', { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j?.aob) bridge.sendCmd({ cmd: 'gpscfg', global: j.aob.global?.pattern, nav: j.aob.nav_offset?.pattern, route: j.aob.route_getter?.pattern, itemSize: j.route_item?.size });
+    } catch {}
+  }, 5000);
+  tracker.gpsStatus = () => gpsStatus;
   // Navegación en tiempo real: si te sales de la ruta recomendada (o cambia el destino) se recalcula sola
   let lastDest = null, rerouting = false, lastFail = null, lastFailAt = 0;
   const navTimer = setInterval(async () => {
     const t = tracker.live, j = t?.job;
+    if (nav.gameRoute) return; // el GPS del juego manda
     // Ruta puesta a mano desde el HUB o el móvil: tiene prioridad y se quita al llegar
     if (nav.manual && t && t.sdk && t.truck && !rerouting) {
       const [dx, dy] = nav.manual.to;

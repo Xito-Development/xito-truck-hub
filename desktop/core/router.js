@@ -73,10 +73,10 @@ class Heap {
   }
 }
 
-async function buildGrid(game, A, B) {
+async function buildGrid(game, A, B, marginOverride) {
   const g = GAMES[game];
   const span = Math.max(Math.abs(A[0] - B[0]), Math.abs(A[1] - B[1]));
-  const margin = Math.max(6000, span * 0.25);
+  const margin = marginOverride != null ? marginOverride : Math.max(6000, span * 0.25);
   const x0 = Math.min(A[0], B[0]) - margin, x1 = Math.max(A[0], B[0]) + margin;
   const y0 = Math.min(A[1], B[1]) - margin, y1 = Math.max(A[1], B[1]) + margin;
   // Se usan teselas detalladas siempre que el trayecto no sea enorme: así la ruta se ciñe a las carreteras
@@ -99,7 +99,8 @@ async function buildGrid(game, A, B) {
     for (let py = 0; py < t.h; py++) {
       const wy = ty + py * sy; if (wy < y0 || wy >= y1) continue;
       const gy = ((wy - y0) / C) | 0;
-      for (let px = 0; px < t.w; px++) {
+      const pxA = Math.max(0, Math.floor((x0 - tx) / sx)), pxB = Math.min(t.w, Math.ceil((x1 - tx) / sx));
+      for (let px = pxA; px < pxB; px++) {
         const p = py * t.w + px;
         if (!(t.bits[p >> 3] & (1 << (p & 7)))) continue;
         const wx = tx + px * sx; if (wx < x0 || wx >= x1) continue;
@@ -236,4 +237,33 @@ async function route({ game = 'ets2', from, to, heat = [], cities = [], hot = []
   }
   return { game, popular, fastest, alts, heatCells: heat.length, grid: { cell: G.C, w: G.W, h: G.H } };
 }
-module.exports = { route, tf, setCacheDir };
+// Ruta real del GPS del juego: llega como nodos (cada 1-2 km). Se rellena cada tramo siguiendo la carretera
+// del mapa para que la línea no corte por el campo en las curvas.
+async function follow({ game = 'ets2', pts }) {
+  const P = pts.map(([x, z]) => tf(game, x, z));
+  const out = [];
+  let units = 0;
+  for (let i = 0; i < P.length; i++) {
+    const b = P[i];
+    if (!i) { out.push([Math.round(b[0]), Math.round(b[1])]); continue; }
+    const a = P[i - 1], d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    let leg = null;
+    if (d > 260 && d < 25000) {
+      try {
+        const G = await buildGrid(game, a, b, Math.min(1500, 300 + d * 0.3));
+        const s0 = snap(G, a[0], a[1]), t0 = snap(G, b[0], b[1]);
+        const path = astar(G, s0, t0, (k) => (G.road[k] ? 1 : 60), 1);
+        if (path && path.length > 1) {
+          const lp = path.map((k) => [G.x0 + ((k % G.W) + 0.5) * G.C, G.y0 + (((k / G.W) | 0) + 0.5) * G.C]);
+          let L = 0; for (let j = 1; j < lp.length; j++) L += Math.hypot(lp[j][0] - lp[j - 1][0], lp[j][1] - lp[j - 1][1]);
+          if (L < d * 2.2 + 300) leg = simplify(lp, G.C * 0.9);
+        }
+      } catch {}
+    }
+    if (leg) { for (const p of leg.slice(1, -1)) out.push([Math.round(p[0]), Math.round(p[1])]); }
+    out.push([Math.round(b[0]), Math.round(b[1])]);
+    units += d;
+  }
+  return { points: out, units: Math.round(units) };
+}
+module.exports = { route, tf, setCacheDir, follow };
